@@ -1,19 +1,28 @@
 package com.pillscope.app.ui.analysis
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +31,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -37,7 +47,6 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Eco
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.History
@@ -45,6 +54,7 @@ import androidx.compose.material.icons.filled.LocalBar
 import androidx.compose.material.icons.filled.LocalDining
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Schedule
@@ -55,14 +65,10 @@ import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -72,6 +78,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,6 +86,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -106,6 +115,9 @@ import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.common.severityPillColors
 import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
+import com.pillscope.app.ui.theme.tactilePressScale
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -126,6 +138,7 @@ fun ProgressiveAnalysisScreen(
 ) {
     val strings = LocalAppStrings.current
     val currentLanguage = LocalAppLanguage.current
+    val reducedMotion = rememberReducedMotionEnabled()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val cachedHistory by viewModel.cachedHistory.collectAsStateWithLifecycle()
@@ -161,54 +174,76 @@ fun ProgressiveAnalysisScreen(
         state.stage != AnalysisStage.ERROR
 
     Column(modifier = modifier.fillMaxSize()) {
-        if (hasPinnedDanger) {
-            PinnedCriticalSafetyBanner(
-                state = state,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            )
-            HorizontalDivider(color = PillScopeColors.SlateBorder)
+        AnimatedVisibility(
+            visible = hasPinnedDanger,
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
+            Column {
+                PinnedCriticalSafetyBanner(
+                    state = state,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+                HorizontalDivider(color = PillScopeColors.SlateBorder.copy(alpha = 0.7f))
+            }
         }
 
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            RiskGaugeHeroCard(
+            // Focal centerpiece: Calibrated clinical risk dial + integrated SSE stage ledger
+            RiskGaugeHeroSurface(
                 state = state,
                 isStreaming = isStreaming,
+                reducedMotion = reducedMotion,
             )
 
             if (state.stage == AnalysisStage.IDLE) {
-                Card(
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PillScopeColors.CardSurface,
                     border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(
-                            text = "${strings.checkSafety} · ${activeProfile.name}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = PillScopeColors.InkPrimary,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = strings.checkSafety,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = PillScopeColors.InkPrimary,
+                            )
+                            Text(
+                                text = activeProfile.name,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = PillScopeColors.ClinicalTeal,
+                            )
+                        }
                         Text(
                             text = strings.checkAgainstCabinetBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = PillScopeColors.InkSecondary,
                         )
                         if (onNavigateToScan != null) {
+                            Spacer(Modifier.height(2.dp))
                             Button(
                                 onClick = onNavigateToScan,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PillScopeColors.ClinicalTeal,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
                             ) {
                                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.size(8.dp))
@@ -218,14 +253,12 @@ fun ProgressiveAnalysisScreen(
                     }
                 }
             } else {
-                LiveSsePipelineStrip(
-                    stage = state.stage,
-                    isStreaming = isStreaming,
-                    safetyLocked = state.safetyBannerLocked,
-                )
-
-                // Voice Readout + Ask AI quick actions for the active safety report
-                if (state.stage == AnalysisStage.COMPLETE || state.clinicalSummary != null) {
+                // Voice Readout + Ask AI quick actions
+                AnimatedVisibility(
+                    visible = state.stage == AnalysisStage.COMPLETE || state.clinicalSummary != null,
+                    enter = PillScopeMotion.panelEnter(reducedMotion),
+                    exit = PillScopeMotion.panelExit(reducedMotion),
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -234,8 +267,23 @@ fun ProgressiveAnalysisScreen(
                             onClick = viewModel::toggleSpeakCurrentReport,
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = 44.dp),
-                            shape = RoundedCornerShape(16.dp),
+                                .heightIn(min = 46.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSpeakingReport) {
+                                    PillScopeColors.CriticalCrimson.copy(alpha = 0.6f)
+                                } else {
+                                    PillScopeColors.SlateBorder
+                                },
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (isSpeakingReport) {
+                                    PillScopeColors.CriticalCrimson
+                                } else {
+                                    PillScopeColors.InkPrimary
+                                },
+                            ),
                         ) {
                             Icon(
                                 imageVector = if (isSpeakingReport) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
@@ -256,8 +304,12 @@ fun ProgressiveAnalysisScreen(
                                 },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .heightIn(min = 44.dp),
-                                shape = RoundedCornerShape(16.dp),
+                                    .heightIn(min = 46.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PillScopeColors.ClinicalTeal,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Mic,
@@ -272,7 +324,11 @@ fun ProgressiveAnalysisScreen(
                 }
             }
 
-            if (state.lifestyleTriggers.isNotEmpty()) {
+            AnimatedVisibility(
+                visible = state.lifestyleTriggers.isNotEmpty(),
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = strings.foodAlcoholLifestyle,
@@ -286,142 +342,204 @@ fun ProgressiveAnalysisScreen(
                 }
             }
 
-            state.errorMessage?.let { err ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = PillScopeColors.ModerateAmberSurface,
-                    border = BorderStroke(1.dp, PillScopeColors.ModerateAmber),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+            AnimatedVisibility(
+                visible = state.errorMessage != null,
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                state.errorMessage?.let { err ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = PillScopeColors.ModerateAmberSurface,
+                        border = BorderStroke(1.dp, PillScopeColors.ModerateAmber.copy(alpha = 0.45f)),
                     ) {
-                        Text(
-                            text = "${strings.checkIncomplete}: $err",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = PillScopeColors.ModerateAmberDark,
-                        )
-                        if (canRetry) {
-                            OutlinedButton(
-                                onClick = viewModel::retryLastAnalysis,
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.size(6.dp))
-                                Text(strings.retrySafetyCheck)
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = "${strings.checkIncomplete}: $err",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PillScopeColors.ModerateAmberDark,
+                            )
+                            if (canRetry) {
+                                OutlinedButton(
+                                    onClick = viewModel::retryLastAnalysis,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, PillScopeColors.ModerateAmber),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = PillScopeColors.ModerateAmberDark,
+                                    ),
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(strings.retrySafetyCheck)
+                                }
                             }
                         }
                     }
                 }
             }
 
-            if (state.interactions.isNotEmpty()) {
-                Text(
-                    text = "${strings.interactionFindings} (${state.interactions.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = PillScopeColors.InkPrimary,
-                )
-                state.interactions.forEach { interaction ->
-                    InteractionRiskCard(interaction = interaction)
+            AnimatedVisibility(
+                visible = state.interactions.isNotEmpty(),
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "${strings.interactionFindings} (${state.interactions.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PillScopeColors.InkPrimary,
+                    )
+                    state.interactions.forEach { interaction ->
+                        InteractionRiskRailCard(
+                            interaction = interaction,
+                            reducedMotion = reducedMotion,
+                        )
+                    }
                 }
             }
 
-            state.clinicalSummary?.let { summary ->
-                val summaryLang = summary.language.takeIf { it.isNotBlank() }?.let(AppLanguage::fromCode)
-                    ?: currentLanguage
-                ClinicalSummaryCard(
-                    headline = summary.headline,
-                    explanation = summary.patientExplanation,
-                    nextSteps = summary.actionableNextSteps,
-                    abstained = summary.abstained,
-                    citationVerified = state.citationVerified,
-                    disclaimer = summary.disclaimer,
-                    languageLabel = summaryLang.nativeName,
-                    isSpeaking = isSpeakingSummary,
-                    onToggleSpeak = viewModel::toggleSpeakClinicalSummary,
-                )
+            AnimatedVisibility(
+                visible = state.clinicalSummary != null,
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                state.clinicalSummary?.let { summary ->
+                    val summaryLang = summary.language.takeIf { it.isNotBlank() }?.let(AppLanguage::fromCode)
+                        ?: currentLanguage
+                    ClinicalSummaryCard(
+                        headline = summary.headline,
+                        explanation = summary.patientExplanation,
+                        nextSteps = summary.actionableNextSteps,
+                        abstained = summary.abstained,
+                        citationVerified = state.citationVerified,
+                        disclaimer = summary.disclaimer,
+                        languageLabel = summaryLang.nativeName,
+                        isSpeaking = isSpeakingSummary,
+                        onToggleSpeak = viewModel::toggleSpeakClinicalSummary,
+                    )
+                }
             }
 
             // Place the cabinet save CTA after interaction findings and clinical briefing so
             // users read warnings before adding a flagged medicine to a family profile.
-            if (state.stage == AnalysisStage.COMPLETE &&
-                state.resolvedSalts.isNotEmpty() &&
-                onAddToCabinet != null
+            AnimatedVisibility(
+                visible = state.stage == AnalysisStage.COMPLETE &&
+                    state.resolvedSalts.isNotEmpty() &&
+                    onAddToCabinet != null,
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
             ) {
-                if (isAlreadyInCabinet) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = PillScopeColors.SafeEmeraldSurface,
-                        border = BorderStroke(1.dp, PillScopeColors.SafeEmerald.copy(alpha = 0.4f)),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                if (onAddToCabinet != null) {
+                    if (isAlreadyInCabinet) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = PillScopeColors.SafeEmeraldSurface,
+                            border = BorderStroke(1.dp, PillScopeColors.SafeEmerald.copy(alpha = 0.35f)),
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = PillScopeColors.SafeEmerald,
-                                modifier = Modifier.size(18.dp),
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = PillScopeColors.SafeEmerald,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = "${strings.inCabinetBadge} (${activeProfile.name})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = PillScopeColors.SafeEmeraldDark,
+                                )
+                            }
+                        }
+                    } else {
+                        val saveInteraction = remember { MutableInteractionSource() }
+                        Button(
+                            onClick = {
+                                draftCabinetName = state.submittedQuery.ifBlank {
+                                    state.resolvedSalts.joinToString(" + ")
+                                }
+                                draftDosageSchedule = ""
+                                showAddToCabinetDialog = true
+                            },
+                            interactionSource = saveInteraction,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 50.dp)
+                                .tactilePressScale(saveInteraction),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = if (hasPinnedDanger) {
+                                ButtonDefaults.buttonColors(
+                                    containerColor = PillScopeColors.CriticalBannerContainer,
+                                    contentColor = PillScopeColors.OnCriticalBanner,
+                                )
+                            } else {
+                                ButtonDefaults.buttonColors(
+                                    containerColor = PillScopeColors.ClinicalTeal,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            },
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
                             Text(
-                                text = "${strings.inCabinetBadge} · ${activeProfile.name}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = PillScopeColors.SafeEmeraldDark,
+                                if (hasPinnedDanger) {
+                                    "${strings.addToCabinetAnywayAction} (${activeProfile.name})"
+                                } else {
+                                    "${strings.addToCabinetAction} (${activeProfile.name})"
+                                },
                             )
                         }
                     }
-                } else {
-                    Button(
-                        onClick = {
-                            draftCabinetName = state.submittedQuery.ifBlank {
-                                state.resolvedSalts.joinToString(" + ")
-                            }
-                            draftDosageSchedule = ""
-                            showAddToCabinetDialog = true
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = if (hasPinnedDanger) {
-                            ButtonDefaults.buttonColors(
-                                containerColor = PillScopeColors.CriticalBannerContainer,
-                                contentColor = PillScopeColors.OnCriticalBanner,
-                            )
-                        } else {
-                            ButtonDefaults.buttonColors()
-                        },
+                }
+            }
+
+            // Unified Official References Accordion Ledger
+            AnimatedVisibility(
+                visible = state.citations.isNotEmpty(),
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "${strings.officialReferences} (${state.citations.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PillScopeColors.InkPrimary,
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = PillScopeColors.CardSurface,
+                        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.size(6.dp))
-                        Text(
-                            if (hasPinnedDanger) {
-                                "${strings.addToCabinetAnywayAction} (${activeProfile.name})"
-                            } else {
-                                "${strings.addToCabinetAction} (${activeProfile.name})"
-                            },
-                        )
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            state.citations.forEachIndexed { idx, citation ->
+                                if (idx > 0) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 14.dp),
+                                        color = PillScopeColors.SlateBorder.copy(alpha = 0.7f),
+                                    )
+                                }
+                                ExpandableCitationLedgerRow(
+                                    citation = citation,
+                                    reducedMotion = reducedMotion,
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            if (state.citations.isNotEmpty()) {
-                Text(
-                    text = "${strings.officialReferences} (${state.citations.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = PillScopeColors.InkPrimary,
-                )
-                state.citations.forEach { citation ->
-                    ExpandableCitationCard(citation = citation)
-                }
-            }
-
+            // Unified Recent Scans Archival Ledger
             if (cachedHistory.isNotEmpty()) {
-                HorizontalDivider(color = PillScopeColors.SlateBorder)
+                HorizontalDivider(color = PillScopeColors.SlateBorder.copy(alpha = 0.7f))
                 val visibleHistory = if (showAllHistory) cachedHistory else cachedHistory.take(10)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -430,7 +548,7 @@ fun ProgressiveAnalysisScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Default.History,
@@ -446,22 +564,38 @@ fun ProgressiveAnalysisScreen(
                     }
                     if (cachedHistory.size > 10) {
                         TextButton(onClick = { showAllHistory = !showAllHistory }) {
-                            Text(if (showAllHistory) strings.showFewer else strings.showAll)
+                            Text(
+                                text = if (showAllHistory) strings.showFewer else strings.showAll,
+                                color = PillScopeColors.ClinicalTeal,
+                            )
                         }
                     }
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    visibleHistory.forEach { summary ->
-                        CachedScanHistoryCard(
-                            summary = summary,
-                            isCurrentlyOpen = summary.scanId == state.scanId,
-                            onClick = {
-                                viewModel.openCachedReport(summary.scanId)
-                                coroutineScope.launch {
-                                    scrollState.animateScrollTo(0)
-                                }
-                            },
-                        )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PillScopeColors.CardSurface,
+                    border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        visibleHistory.forEachIndexed { idx, summary ->
+                            if (idx > 0) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                    color = PillScopeColors.SlateBorder.copy(alpha = 0.65f),
+                                )
+                            }
+                            CachedScanLedgerRow(
+                                summary = summary,
+                                isCurrentlyOpen = summary.scanId == state.scanId,
+                                onClick = {
+                                    viewModel.openCachedReport(summary.scanId)
+                                    coroutineScope.launch {
+                                        scrollState.animateScrollTo(0)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -474,6 +608,8 @@ fun ProgressiveAnalysisScreen(
         val canSave = draftCabinetName.isNotBlank() || state.resolvedSalts.isNotEmpty()
         AlertDialog(
             onDismissRequest = { showAddToCabinetDialog = false },
+            containerColor = PillScopeColors.CardSurface,
+            shape = RoundedCornerShape(20.dp),
             title = {
                 Text(
                     if (hasPinnedDanger) {
@@ -481,6 +617,7 @@ fun ProgressiveAnalysisScreen(
                     } else {
                         "Add to ${activeProfile.name}'s cabinet"
                     },
+                    style = MaterialTheme.typography.titleLarge,
                 )
             },
             text = {
@@ -492,8 +629,9 @@ fun ProgressiveAnalysisScreen(
                 ) {
                     if (hasPinnedDanger) {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = PillScopeColors.CriticalCrimsonSurface,
+                            border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.35f)),
                         ) {
                             Text(
                                 text = "This medicine triggered a critical safety alert for ${activeProfile.name} (major interaction, allergy, duplicate ingredient, or FDA recall). Consult a doctor or pharmacist before taking it.",
@@ -508,6 +646,7 @@ fun ProgressiveAnalysisScreen(
                         onValueChange = { draftCabinetName = it },
                         label = { Text("Medication name") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
@@ -520,6 +659,7 @@ fun ProgressiveAnalysisScreen(
                         onValueChange = { draftDosageSchedule = it },
                         label = { Text("Dosage schedule (optional)") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     DosagePresetChips(
@@ -571,7 +711,7 @@ fun ProgressiveAnalysisScreen(
         ModalBottomSheet(
             onDismissRequest = { selectedTrigger = null },
             containerColor = PillScopeColors.CardSurface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         ) {
             LifestyleTriggerDetailContent(
                 trigger = trigger,
@@ -608,17 +748,16 @@ private fun PinnedCriticalSafetyBanner(
 
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         color = PillScopeColors.CriticalBannerContainer,
-        shadowElevation = 2.dp,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 176.dp)
+                .heightIn(max = 180.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -637,6 +776,8 @@ private fun PinnedCriticalSafetyBanner(
                     fontWeight = FontWeight.Bold,
                 )
             }
+
+            HorizontalDivider(color = PillScopeColors.OnCriticalBanner.copy(alpha = 0.22f))
 
             state.allergyAlerts.forEach { allergy ->
                 Text(
@@ -672,7 +813,7 @@ private fun PinnedCriticalSafetyBanner(
 
             state.activeRecalls.forEach { recall ->
                 Text(
-                    text = "${recall.alertLabel} (${recall.classification}): ${recall.matchedMedicationName} — ${recall.reasonForRecall}",
+                    text = "${recall.alertLabel} (${recall.classification}): ${recall.matchedMedicationName}. ${recall.reasonForRecall}",
                     color = PillScopeColors.OnCriticalBanner,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -680,8 +821,8 @@ private fun PinnedCriticalSafetyBanner(
 
             if (state.activeRecalls.isNotEmpty()) {
                 Text(
-                    text = "Matched by active ingredient against US FDA recalls — verify manufacturer & lot number on your package.",
-                    color = PillScopeColors.OnCriticalBanner.copy(alpha = 0.9f),
+                    text = "Matched by active ingredient against US FDA recalls. Verify manufacturer and lot number on your package.",
+                    color = PillScopeColors.OnCriticalBanner.copy(alpha = 0.88f),
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -699,9 +840,10 @@ private fun PinnedCriticalSafetyBanner(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RiskGaugeHeroCard(
+private fun RiskGaugeHeroSurface(
     state: ScanAnalysisState,
     isStreaming: Boolean,
+    reducedMotion: Boolean,
 ) {
     val palette = LocalPillScopePalette.current
     val isUnrecognized = state.stage.ordinal >= AnalysisStage.DETERMINISTIC_READY.ordinal &&
@@ -709,7 +851,7 @@ private fun RiskGaugeHeroCard(
         state.resolvedSalts.isEmpty()
 
     val targetFraction = when {
-        state.stage == AnalysisStage.IDLE -> 0.05f
+        state.stage == AnalysisStage.IDLE -> 0.04f
         state.stage == AnalysisStage.CONNECTING -> 0.28f
         state.stage == AnalysisStage.ERROR -> 0.50f
         isUnrecognized -> 0.50f
@@ -720,10 +862,7 @@ private fun RiskGaugeHeroCard(
     }
     val needleFraction by animateFloatAsState(
         targetValue = targetFraction,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
+        animationSpec = if (reducedMotion) tween(0) else PillScopeMotion.dialSpring(),
         label = "riskNeedle",
     )
     val riskAccent by animateColorAsState(
@@ -737,6 +876,7 @@ private fun RiskGaugeHeroCard(
             state.overallRisk == RiskLevel.MINOR -> palette.minorBlue
             else -> palette.safeEmerald
         },
+        animationSpec = tween(PillScopeMotion.STANDARD_MS),
         label = "riskAccent",
     )
     val riskHeadlineColor by animateColorAsState(
@@ -750,6 +890,7 @@ private fun RiskGaugeHeroCard(
             state.overallRisk == RiskLevel.MINOR -> palette.minorBlue
             else -> palette.safeEmerald
         },
+        animationSpec = tween(PillScopeMotion.STANDARD_MS),
         label = "riskHeadlineColor",
     )
     val strings = LocalAppStrings.current
@@ -764,172 +905,231 @@ private fun RiskGaugeHeroCard(
         else -> strings.noInteractionsFound
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(PillScopeMotion.settleSpring()),
+        shape = RoundedCornerShape(20.dp),
+        color = PillScopeColors.CardSurface,
         border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = state.submittedQuery.ifBlank { strings.noActiveSafetyCheck },
-                        style = MaterialTheme.typography.titleLarge,
-                        color = PillScopeColors.InkPrimary,
-                    )
-                    if (state.resolvedSalts.isNotEmpty()) {
-                        Text(
-                            text = state.resolvedSalts.joinToString(" + "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = PillScopeColors.ClinicalTeal,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    } else if (isUnrecognized) {
-                        Text(
-                            text = "No active ingredients could be verified — try searching by generic name",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = PillScopeColors.ModerateAmberDark,
-                        )
-                    }
-                }
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top,
                 ) {
-                    if (!state.persisted && state.stage != AnalysisStage.IDLE) {
-                        Surface(
-                            shape = CircleShape,
-                            color = PillScopeColors.ModerateAmberSurface,
-                        ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            text = state.submittedQuery.ifBlank { strings.noActiveSafetyCheck },
+                            style = MaterialTheme.typography.titleLarge,
+                            color = PillScopeColors.InkPrimary,
+                        )
+                        if (state.resolvedSalts.isNotEmpty()) {
                             Text(
-                                text = "Quick check",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = state.resolvedSalts.joinToString(" + "),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PillScopeColors.ClinicalTeal,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        } else if (isUnrecognized) {
+                            Text(
+                                text = "No active ingredients could be verified. Try searching by generic name.",
+                                style = MaterialTheme.typography.labelMedium,
                                 color = PillScopeColors.ModerateAmberDark,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             )
                         }
                     }
-                    if (isStreaming) {
-                        LoadingIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = riskAccent,
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (!state.persisted && state.stage != AnalysisStage.IDLE) {
+                            Surface(
+                                shape = CircleShape,
+                                color = PillScopeColors.ModerateAmberSurface,
+                            ) {
+                                Text(
+                                    text = strings.quickCheck,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PillScopeColors.ModerateAmberDark,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                        }
+                        if (isStreaming) {
+                            LoadingIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = riskAccent,
+                            )
+                        }
+                    }
+                }
+
+                // Calibrated precision apothecary dial stacked cleanly ABOVE the serif headline
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .size(width = 248.dp, height = 136.dp),
+                    ) {
+                        val outerPad = 14.dp.toPx()
+                        val strokeWidth = 12.dp.toPx()
+                        val diameter = size.width - outerPad * 2 - strokeWidth
+                        val arcTopLeft = Offset(outerPad + strokeWidth / 2f, outerPad + strokeWidth / 2f)
+                        val arcSize = Size(diameter, diameter)
+                        val center = Offset(size.width / 2f, arcTopLeft.y + diameter / 2f)
+
+                        // Subtle precision graduation ticks along the outer arc
+                        val tickInnerR = diameter / 2f + strokeWidth * 0.72f
+                        val tickOuterMajorR = tickInnerR + 6.dp.toPx()
+                        val tickOuterMinorR = tickInnerR + 3.5.dp.toPx()
+                        val totalTicks = 24
+                        for (i in 0..totalTicks) {
+                            val frac = i.toFloat() / totalTicks.toFloat()
+                            val angleRad = PI * (1.0 + frac.toDouble())
+                            val isMajorTick = i % 6 == 0
+                            val rOut = if (isMajorTick) tickOuterMajorR else tickOuterMinorR
+                            val tickColor = if (frac <= needleFraction + 0.02f && state.stage != AnalysisStage.IDLE) {
+                                riskAccent.copy(alpha = if (isMajorTick) 0.78f else 0.42f)
+                            } else {
+                                palette.slateBorder.copy(alpha = if (isMajorTick) 0.9f else 0.55f)
+                            }
+                            drawLine(
+                                color = tickColor,
+                                start = Offset(
+                                    center.x + (cos(angleRad) * tickInnerR).toFloat(),
+                                    center.y + (sin(angleRad) * tickInnerR).toFloat(),
+                                ),
+                                end = Offset(
+                                    center.x + (cos(angleRad) * rOut).toFloat(),
+                                    center.y + (sin(angleRad) * rOut).toFloat(),
+                                ),
+                                strokeWidth = if (isMajorTick) 1.6.dp.toPx() else 1.dp.toPx(),
+                                cap = StrokeCap.Round,
+                            )
+                        }
+
+                        // Quiet segmented matte scale with crisp gaps so round caps never overlap
+                        val segments = listOf(
+                            Triple(180f, 38f, palette.safeEmerald.copy(alpha = 0.24f)),
+                            Triple(226f, 38f, palette.minorBlue.copy(alpha = 0.24f)),
+                            Triple(272f, 38f, palette.moderateAmber.copy(alpha = 0.26f)),
+                            Triple(318f, 42f, palette.criticalCrimson.copy(alpha = 0.28f)),
                         )
+                        for ((startAngle, sweep, color) in segments) {
+                            drawArc(
+                                color = color,
+                                startAngle = startAngle,
+                                sweepAngle = sweep,
+                                useCenter = false,
+                                topLeft = arcTopLeft,
+                                size = arcSize,
+                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+                            )
+                        }
+
+                        // Active swept risk arc (omitted while idle so the resting dial stays uncluttered)
+                        if (state.stage != AnalysisStage.IDLE) {
+                            val activeSweep = (needleFraction * 180f).coerceIn(6f, 180f)
+                            drawArc(
+                                color = riskAccent,
+                                startAngle = 180f,
+                                sweepAngle = activeSweep,
+                                useCenter = false,
+                                topLeft = arcTopLeft,
+                                size = arcSize,
+                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+                            )
+                        }
+
+                        // Fine needle & anodized pivot
+                        val angleRad = PI * (1.0 + needleFraction.toDouble())
+                        val needleLen = (diameter / 2f) - strokeWidth * 0.85f
+                        val tip = Offset(
+                            x = center.x + (cos(angleRad) * needleLen).toFloat(),
+                            y = center.y + (sin(angleRad) * needleLen).toFloat(),
+                        )
+                        drawLine(
+                            color = palette.inkPrimary,
+                            start = center,
+                            end = tip,
+                            strokeWidth = 3.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                        drawCircle(
+                            color = palette.inkPrimary,
+                            radius = 6.5.dp.toPx(),
+                            center = center,
+                        )
+                        drawCircle(
+                            color = palette.cardSurface,
+                            radius = 2.8.dp.toPx(),
+                            center = center,
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        AnimatedContent(
+                            targetState = riskHeadline,
+                            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                            label = "riskVerdictText",
+                        ) { headline ->
+                            Text(
+                                text = headline,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = riskHeadlineColor,
+                            )
+                        }
+                        if (state.fromOfflineCache) {
+                            Text(
+                                text = strings.savedOfflineReport,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PillScopeColors.InkSecondary,
+                            )
+                        }
                     }
                 }
             }
 
-            // Stack the semicircular dial cleanly ABOVE the headline typography so the
-            // needle and center pivot never collide with text at any angle or font size.
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Canvas(
-                    modifier = Modifier
-                        .size(width = 236.dp, height = 132.dp),
-                ) {
-                    val strokeWidth = 16.dp.toPx()
-                    val diameter = size.width - strokeWidth
-                    val arcTopLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
-                    val arcSize = Size(diameter, diameter)
-
-                    val segments = listOf(
-                        Triple(180f, 43f, palette.safeEmerald.copy(alpha = 0.25f)),
-                        Triple(225f, 43f, palette.minorBlue.copy(alpha = 0.25f)),
-                        Triple(270f, 43f, palette.moderateAmber.copy(alpha = 0.28f)),
-                        Triple(315f, 45f, palette.criticalCrimson.copy(alpha = 0.30f)),
-                    )
-                    for ((startAngle, sweep, color) in segments) {
-                        drawArc(
-                            color = color,
-                            startAngle = startAngle,
-                            sweepAngle = sweep,
-                            useCenter = false,
-                            topLeft = arcTopLeft,
-                            size = arcSize,
-                            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                        )
-                    }
-
-                    val activeSweep = (needleFraction * 180f).coerceIn(6f, 180f)
-                    drawArc(
-                        color = riskAccent,
-                        startAngle = 180f,
-                        sweepAngle = activeSweep,
-                        useCenter = false,
-                        topLeft = arcTopLeft,
-                        size = arcSize,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-                    )
-
-                    val center = Offset(size.width / 2f, strokeWidth / 2f + diameter / 2f)
-                    val angleRad = PI * (1.0 + needleFraction.toDouble())
-                    val needleLen = (diameter / 2f) - strokeWidth * 0.9f
-                    val tip = Offset(
-                        x = center.x + (cos(angleRad) * needleLen).toFloat(),
-                        y = center.y + (sin(angleRad) * needleLen).toFloat(),
-                    )
-                    drawLine(
-                        color = palette.inkPrimary,
-                        start = center,
-                        end = tip,
-                        strokeWidth = 4.dp.toPx(),
-                        cap = StrokeCap.Round,
-                    )
-                    drawCircle(
-                        color = palette.inkPrimary,
-                        radius = 7.dp.toPx(),
-                        center = center,
-                    )
-                    drawCircle(
-                        color = palette.cardSurface,
-                        radius = 3.dp.toPx(),
-                        center = center,
-                    )
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = riskHeadline,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = riskHeadlineColor,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    if (state.fromOfflineCache) {
-                        Text(
-                            text = strings.savedOfflineReport,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = PillScopeColors.InkSecondary,
-                        )
-                    }
-                }
+            // Integrated SSE stage verification footer inside the hero instrument
+            if (state.stage != AnalysisStage.IDLE) {
+                HorizontalDivider(color = PillScopeColors.SlateBorder.copy(alpha = 0.7f))
+                IntegratedPipelineFooter(
+                    stage = state.stage,
+                    isStreaming = isStreaming,
+                    safetyLocked = state.safetyBannerLocked,
+                    reducedMotion = reducedMotion,
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun LiveSsePipelineStrip(
+private fun IntegratedPipelineFooter(
     stage: AnalysisStage,
     isStreaming: Boolean,
     safetyLocked: Boolean,
+    reducedMotion: Boolean,
 ) {
+    val strings = LocalAppStrings.current
     val saltResolvedDone = stage.ordinal >= AnalysisStage.DETERMINISTIC_READY.ordinal &&
         stage != AnalysisStage.ERROR
     val mlScoredDone = stage.ordinal >= AnalysisStage.ML_READY.ordinal &&
@@ -940,50 +1140,54 @@ private fun LiveSsePipelineStrip(
     val stepProgress by animateFloatAsState(
         targetValue = when (stage) {
             AnalysisStage.IDLE -> 0f
-            AnalysisStage.CONNECTING -> 0.15f
-            AnalysisStage.DETERMINISTIC_READY -> 0.38f
-            AnalysisStage.ML_READY -> 0.68f
+            AnalysisStage.CONNECTING -> 0.16f
+            AnalysisStage.DETERMINISTIC_READY -> 0.40f
+            AnalysisStage.ML_READY -> 0.70f
             AnalysisStage.CITATIONS_READY -> 0.88f
             AnalysisStage.SUMMARY_READY, AnalysisStage.COMPLETE -> 1f
             AnalysisStage.ERROR -> 1f
         },
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = if (reducedMotion) tween(0) else PillScopeMotion.settleSpring(),
         label = "sseProgress",
     )
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
-        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PillScopeColors.SlateSurface.copy(alpha = 0.55f))
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val strings = LocalAppStrings.current
-                PipelineStepPill(label = strings.stepIngredients, active = saltResolvedDone)
-                PipelineStepPill(label = strings.stepInteractions, active = mlScoredDone)
-                PipelineStepPill(label = strings.stepFdaSources, active = monographsDone)
-            }
+            PipelineStepItem(label = strings.stepIngredients, done = saltResolvedDone)
+            PipelineStepItem(label = strings.stepInteractions, done = mlScoredDone)
+            PipelineStepItem(label = strings.stepFdaSources, done = monographsDone)
+        }
 
-            if (isStreaming) {
-                LinearWavyProgressIndicator(
-                    progress = { stepProgress },
+        AnimatedVisibility(
+            visible = isStreaming,
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(PillScopeColors.SurfaceTint),
+            ) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(10.dp),
-                    color = if (safetyLocked) {
-                        PillScopeColors.CriticalCrimson
-                    } else {
-                        PillScopeColors.ClinicalTeal
-                    },
-                    trackColor = PillScopeColors.SurfaceTint,
+                        .fillMaxWidth(stepProgress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(
+                            if (safetyLocked) PillScopeColors.CriticalCrimson else PillScopeColors.ClinicalTeal,
+                        ),
                 )
             }
         }
@@ -991,43 +1195,31 @@ private fun LiveSsePipelineStrip(
 }
 
 @Composable
-private fun PipelineStepPill(
+private fun PipelineStepItem(
     label: String,
-    active: Boolean,
+    done: Boolean,
 ) {
-    val bg by animateColorAsState(
-        targetValue = if (active) PillScopeColors.SafeEmeraldSurface else PillScopeColors.SurfaceTint,
-        label = "stepBg",
-    )
     val fg by animateColorAsState(
-        targetValue = if (active) PillScopeColors.SafeEmeraldDark else PillScopeColors.InkSecondary,
+        targetValue = if (done) PillScopeColors.SafeEmeraldDark else PillScopeColors.InkSecondary,
+        animationSpec = tween(PillScopeMotion.FAST_MS),
         label = "stepFg",
     )
-
-    Surface(
-        shape = CircleShape,
-        color = bg,
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (active) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = PillScopeColors.SafeEmerald,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = fg,
-                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-            )
-        }
+        Icon(
+            imageVector = if (done) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (done) PillScopeColors.SafeEmerald else PillScopeColors.InkSecondary.copy(alpha = 0.5f),
+            modifier = Modifier.size(14.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = fg,
+            fontWeight = if (done) FontWeight.SemiBold else FontWeight.Medium,
+        )
     }
 }
 
@@ -1044,13 +1236,13 @@ private fun LifestyleTriggerChipRow(
             val (bg, fg, icon) = lifestyleTriggerVisuals(trigger)
             Surface(
                 onClick = { onSelectTrigger(trigger) },
-                modifier = Modifier.heightIn(min = 40.dp),
-                shape = CircleShape,
+                modifier = Modifier.heightIn(min = 42.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = bg,
-                border = BorderStroke(1.dp, fg.copy(alpha = 0.32f)),
+                border = BorderStroke(1.dp, fg.copy(alpha = 0.28f)),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -1109,7 +1301,7 @@ private fun LifestyleTriggerDetailContent(
             }
         }
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             color = PillScopeColors.SlateSurface,
             border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
         ) {
@@ -1164,7 +1356,10 @@ private fun formatSectionLabel(rawSection: String): String = when (rawSection.lo
 }
 
 @Composable
-private fun InteractionRiskCard(interaction: InteractionItemDto) {
+private fun InteractionRiskRailCard(
+    interaction: InteractionItemDto,
+    reducedMotion: Boolean,
+) {
     val risk = RiskLevel.fromApi(interaction.severity)
     val accent = when (risk) {
         RiskLevel.MAJOR -> PillScopeColors.CriticalCrimson
@@ -1174,66 +1369,108 @@ private fun InteractionRiskCard(interaction: InteractionItemDto) {
     }
     val (pillBg, pillFg) = severityPillColors(risk)
 
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.42f)),
+        shape = RoundedCornerShape(14.dp),
+        color = PillScopeColors.CardSurface,
+        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(accent),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                Text(
-                    text = "${interaction.saltA} + ${interaction.saltB}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = PillScopeColors.InkPrimary,
-                    modifier = Modifier.weight(1f),
-                )
-                Surface(
-                    shape = CircleShape,
-                    color = pillBg,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = interaction.severity.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = pillFg,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                        text = "${interaction.saltA} + ${interaction.saltB}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PillScopeColors.InkPrimary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
                     )
+                    Surface(shape = CircleShape, color = pillBg) {
+                        Text(
+                            text = interaction.severity.lowercase().replaceFirstChar { it.uppercase() },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = pillFg,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                        )
+                    }
                 }
-            }
-            Text(
-                text = formatInteractionSourceLabel(interaction.source),
-                style = MaterialTheme.typography.labelSmall,
-                color = PillScopeColors.InkSecondary,
-            )
-            interaction.mlMajorProbability?.let { prob ->
                 Text(
-                    text = "Estimated major interaction likelihood: ${(prob * 100).roundToInt()}%",
+                    text = formatInteractionSourceLabel(interaction.source),
                     style = MaterialTheme.typography.labelSmall,
                     color = PillScopeColors.InkSecondary,
                 )
-                LinearProgressIndicator(
-                    progress = { prob.toFloat().coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp),
-                    color = accent,
+                interaction.mlMajorProbability?.let { prob ->
+                    var revealed by remember(interaction.saltA, interaction.saltB, prob) {
+                        mutableStateOf(reducedMotion)
+                    }
+                    LaunchedEffect(interaction.saltA, interaction.saltB, prob) {
+                        revealed = true
+                    }
+                    val fillFraction by animateFloatAsState(
+                        targetValue = if (revealed) prob.toFloat().coerceIn(0f, 1f) else 0f,
+                        animationSpec = if (reducedMotion) {
+                            tween(0)
+                        } else {
+                            tween(durationMillis = 520, easing = FastOutSlowInEasing)
+                        },
+                        label = "mlProbBar",
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Estimated major interaction likelihood: ${(prob * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PillScopeColors.InkSecondary,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(CircleShape)
+                                .background(PillScopeColors.SurfaceTint),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fillFraction)
+                                    .fillMaxHeight()
+                                    .clip(CircleShape)
+                                    .background(accent),
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = interaction.mechanism,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PillScopeColors.InkPrimary,
+                )
+                HorizontalDivider(color = PillScopeColors.SlateBorder.copy(alpha = 0.6f))
+                Text(
+                    text = "What to do: ${interaction.management}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PillScopeColors.InkPrimary,
+                    fontWeight = FontWeight.Medium,
                 )
             }
-            Text(
-                text = interaction.mechanism,
-                style = MaterialTheme.typography.bodyMedium,
-                color = PillScopeColors.InkPrimary,
-            )
-            Text(
-                text = "What to do: ${interaction.management}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = PillScopeColors.InkPrimary,
-                fontWeight = FontWeight.Medium,
-            )
         }
     }
 }
@@ -1253,13 +1490,13 @@ private fun ClinicalSummaryCard(
     val strings = LocalAppStrings.current
     val badgeColor = if (abstained) PillScopeColors.ModerateAmberDark else PillScopeColors.SafeEmeraldDark
     val badgeBg = if (abstained) PillScopeColors.ModerateAmberSurface else PillScopeColors.SafeEmeraldSurface
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+        shape = RoundedCornerShape(16.dp),
+        color = PillScopeColors.CardSurface,
         border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1279,7 +1516,7 @@ private fun ClinicalSummaryCard(
                             imageVector = if (abstained) Icons.Default.Warning else Icons.Default.Verified,
                             contentDescription = null,
                             tint = badgeColor,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(15.dp),
                         )
                         Text(
                             text = when {
@@ -1305,9 +1542,9 @@ private fun ClinicalSummaryCard(
                         },
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
                             Icon(
                                 imageVector = if (isSpeaking) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
@@ -1323,7 +1560,7 @@ private fun ClinicalSummaryCard(
                                 text = if (isSpeaking) {
                                     strings.stopSpeaking
                                 } else if (languageLabel.isNotBlank()) {
-                                    "${strings.listen} · $languageLabel"
+                                    "${strings.listen} ($languageLabel)"
                                 } else {
                                     strings.listen
                                 },
@@ -1340,22 +1577,37 @@ private fun ClinicalSummaryCard(
             }
             Text(
                 text = headline,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = PillScopeColors.InkPrimary,
             )
             Text(
                 text = explanation,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 color = PillScopeColors.InkPrimary,
             )
             if (nextSteps.isNotEmpty()) {
-                HorizontalDivider(color = PillScopeColors.SlateBorder)
-                nextSteps.forEach { step ->
-                    Text(
-                        text = "• $step",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PillScopeColors.InkPrimary,
-                    )
+                HorizontalDivider(color = PillScopeColors.SlateBorder.copy(alpha = 0.7f))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    nextSteps.forEach { step ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(PillScopeColors.ClinicalTeal),
+                            )
+                            Text(
+                                text = step,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PillScopeColors.InkPrimary,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
             if (disclaimer.isNotBlank()) {
@@ -1370,82 +1622,104 @@ private fun ClinicalSummaryCard(
 }
 
 @Composable
-private fun ExpandableCitationCard(citation: MonographCitationDto) {
+private fun ExpandableCitationLedgerRow(
+    citation: MonographCitationDto,
+    reducedMotion: Boolean,
+) {
     var expanded by remember(citation.chunkId) { mutableStateOf(false) }
     val openUri = rememberSafeUriOpener()
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = if (reducedMotion) tween(0) else PillScopeMotion.settleSpring(),
+        label = "citationChevron",
+    )
 
-    Card(
-        onClick = { expanded = !expanded },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
-        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .animateContentSize(PillScopeMotion.settleSpring())
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${citation.canonicalSalt.replaceFirstChar { it.uppercase() }} (${formatSectionLabel(citation.sectionTitle)})",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = PillScopeColors.ClinicalTeal,
-                    )
-                    val relevanceLabel = when {
-                        citation.rerankScore >= 0.75 -> "High relevance"
-                        citation.rerankScore >= 0.45 -> "Moderate relevance"
-                        else -> "Supporting reference"
-                    }
-                    Text(
-                        text = "Official FDA drug label · $relevanceLabel",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = PillScopeColors.InkSecondary,
-                    )
+                Text(
+                    text = "${citation.canonicalSalt.replaceFirstChar { it.uppercase() }} (${formatSectionLabel(citation.sectionTitle)})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = PillScopeColors.ClinicalTeal,
+                )
+                val relevanceLabel = when {
+                    citation.rerankScore >= 0.75 -> "High relevance"
+                    citation.rerankScore >= 0.45 -> "Moderate relevance"
+                    else -> "Supporting reference"
                 }
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "Collapse reference" else "Expand reference",
-                    tint = PillScopeColors.InkSecondary,
+                Text(
+                    text = "Official FDA drug label, $relevanceLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PillScopeColors.InkSecondary,
                 )
             }
+            Icon(
+                imageVector = Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Collapse reference" else "Expand reference",
+                tint = PillScopeColors.InkSecondary,
+                modifier = Modifier.rotate(chevronRotation),
+            )
+        }
 
-            AnimatedVisibility(visible = expanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Spacer(Modifier.height(2.dp))
-                    HorizontalDivider(color = PillScopeColors.SlateBorder)
+        AnimatedVisibility(
+            visible = expanded,
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Spacer(Modifier.height(2.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = PillScopeColors.SlateSurface,
+                ) {
                     Text(
                         text = citation.excerpt,
                         style = MaterialTheme.typography.bodyMedium,
                         color = PillScopeColors.InkPrimary,
+                        modifier = Modifier.padding(12.dp),
                     )
-                    val isWebUrl = citation.sourceUrl.startsWith("https://") ||
-                        citation.sourceUrl.startsWith("http://")
-                    if (isWebUrl) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .clickable { openUri(citation.sourceUrl) }
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Text(
-                                text = formatMonographLinkLabel(citation.sourceUrl),
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    textDecoration = TextDecoration.Underline,
-                                ),
-                                color = PillScopeColors.MinorBlue,
-                            )
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Open official source",
-                                tint = PillScopeColors.MinorBlue,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
+                }
+                val isWebUrl = citation.sourceUrl.startsWith("https://") ||
+                    citation.sourceUrl.startsWith("http://")
+                if (isWebUrl) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { openUri(citation.sourceUrl) }
+                            .padding(vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = formatMonographLinkLabel(citation.sourceUrl),
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                textDecoration = TextDecoration.Underline,
+                            ),
+                            color = PillScopeColors.MinorBlue,
+                        )
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Open official source",
+                            tint = PillScopeColors.MinorBlue,
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                 }
             }
@@ -1454,12 +1728,27 @@ private fun ExpandableCitationCard(citation: MonographCitationDto) {
 }
 
 @Composable
-private fun CachedScanHistoryCard(
+private fun CachedScanLedgerRow(
     summary: CachedScanSummary,
     isCurrentlyOpen: Boolean,
     onClick: () -> Unit,
 ) {
     val (pillBg, pillFg) = severityPillColors(summary.overallRisk)
+    val railColor = when (summary.overallRisk) {
+        RiskLevel.MAJOR -> PillScopeColors.CriticalCrimson
+        RiskLevel.MODERATE -> PillScopeColors.ModerateAmber
+        RiskLevel.MINOR -> PillScopeColors.MinorBlue
+        RiskLevel.NONE -> PillScopeColors.SafeEmerald
+    }
+    val rowBg by animateColorAsState(
+        targetValue = if (isCurrentlyOpen) {
+            PillScopeColors.ClinicalTealContainer.copy(alpha = 0.42f)
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(PillScopeMotion.FAST_MS),
+        label = "historyRowBg",
+    )
     val formattedDate = remember(summary.createdAtEpochMs) {
         if (summary.createdAtEpochMs <= 0L) {
             ""
@@ -1472,30 +1761,33 @@ private fun CachedScanHistoryCard(
         }
     }
 
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isCurrentlyOpen) {
-                PillScopeColors.ClinicalTealContainer.copy(alpha = 0.45f)
-            } else {
-                PillScopeColors.CardSurface
-            },
-        ),
-        border = BorderStroke(
-            width = if (isCurrentlyOpen) 1.5.dp else 1.dp,
-            color = if (isCurrentlyOpen) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
-        ),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .background(rowBg)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(if (isCurrentlyOpen) PillScopeColors.ClinicalTeal else railColor.copy(alpha = 0.7f)),
+        )
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .weight(1f)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     text = summary.submittedQuery.ifBlank { summary.resolvedSalts.joinToString(" + ") },
                     style = MaterialTheme.typography.titleSmall,
@@ -1516,13 +1808,10 @@ private fun CachedScanHistoryCard(
                     )
                 }
             }
-            Surface(
-                shape = CircleShape,
-                color = pillBg,
-            ) {
+            Surface(shape = CircleShape, color = pillBg) {
                 Text(
                     text = if (summary.overallRisk == RiskLevel.NONE) {
-                        "Safe"
+                        LocalAppStrings.current.safeBadge
                     } else {
                         summary.overallRisk.name.lowercase().replaceFirstChar { it.uppercase() }
                     },

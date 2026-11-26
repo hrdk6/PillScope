@@ -1,12 +1,16 @@
 package com.pillscope.app.ui.cabinet
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -19,6 +23,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,19 +44,18 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -87,6 +92,8 @@ import com.pillscope.app.ui.common.formatMonographLinkLabel
 import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -102,21 +109,35 @@ fun CabinetNetworkGraph(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPillScopePalette.current
+    val reducedMotion = rememberReducedMotionEnabled()
     val textMeasurer = rememberTextMeasurer()
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var draggingNodeId by remember { mutableStateOf<String?>(null) }
-    var zoomScale by remember { mutableFloatStateOf(1f) }
-
-    val pulseTransition = rememberInfiniteTransition(label = "majorEdgePulse")
-    val pulseFraction by pulseTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pulseAlpha",
+    var targetZoomScale by remember { mutableFloatStateOf(1f) }
+    val zoomScale by animateFloatAsState(
+        targetValue = targetZoomScale,
+        animationSpec = if (reducedMotion) tween(0) else PillScopeMotion.settleSpring(),
+        label = "graphZoom",
     )
+
+    val hasMajorOrRecall = remember(graphState.edges, graphState.nodes) {
+        graphState.edges.any { it.severity == GraphEdgeSeverity.MAJOR } ||
+            graphState.nodes.any { it.hasActiveRecall }
+    }
+    val pulseFraction = if (hasMajorOrRecall && !reducedMotion) {
+        val pulseTransition = rememberInfiniteTransition(label = "majorEdgePulse")
+        pulseTransition.animateFloat(
+            initialValue = 0.62f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "pulseAlpha",
+        ).value
+    } else {
+        1f
+    }
 
     val interactiveEdges = remember(graphState.edges) {
         graphState.edges.filter { it.isInteractive }
@@ -142,14 +163,15 @@ fun CabinetNetworkGraph(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Card(
+        // Scientific dot-grid molecular interaction diagram surface
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(304.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+                .height(310.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = PillScopeColors.CardSurface,
             border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
         ) {
             if (graphState.nodes.isEmpty()) {
@@ -211,8 +233,6 @@ fun CabinetNetworkGraph(
                                 }
                             }
                             .pointerInput(graphState.nodes, canvasSize, zoomScale) {
-                                // Only intercept drags that begin on a medication node so vertical
-                                // swipes over open canvas pass cleanly to the parent scroll container.
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     val w = canvasSize.width.toFloat().coerceAtLeast(1f)
@@ -249,6 +269,20 @@ fun CabinetNetworkGraph(
                                 }
                             },
                     ) {
+                        // Subtle archival dot-grid background
+                        val gridStep = 22.dp.toPx()
+                        val dotRadius = 1.dp.toPx()
+                        val dotColor = palette.slateBorder.copy(alpha = 0.45f)
+                        var gx = gridStep / 2f
+                        while (gx < size.width) {
+                            var gy = gridStep / 2f
+                            while (gy < size.height) {
+                                drawCircle(color = dotColor, radius = dotRadius, center = Offset(gx, gy))
+                                gy += gridStep
+                            }
+                            gx += gridStep
+                        }
+
                         val nodeMap = graphState.nodes.associateBy { it.medicationId }
                         fun project(normX: Float, normY: Float): Offset {
                             val rawX = normX * size.width
@@ -271,31 +305,31 @@ fun CabinetNetworkGraph(
                                 quadraticTo(cx, cy, pB.x, pB.y)
                             }
                             val highlighted = graphState.isEdgeHighlighted(edge)
-                            val alphaScale = if (highlighted) 1f else 0.18f
+                            val alphaScale = if (highlighted) 1f else 0.16f
 
                             when (edge.severity) {
                                 GraphEdgeSeverity.MAJOR -> {
                                     drawPath(
                                         path = path,
                                         color = palette.criticalCrimson.copy(
-                                            alpha = 0.25f * pulseFraction * alphaScale,
+                                            alpha = 0.16f * pulseFraction * alphaScale,
                                         ),
-                                        style = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round),
+                                        style = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round),
                                     )
                                     drawPath(
                                         path = path,
                                         color = palette.criticalCrimson.copy(
                                             alpha = pulseFraction * alphaScale,
                                         ),
-                                        style = Stroke(width = 3.8.dp.toPx(), cap = StrokeCap.Round),
+                                        style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round),
                                     )
                                 }
 
                                 GraphEdgeSeverity.MODERATE -> {
                                     drawPath(
                                         path = path,
-                                        color = palette.moderateAmber.copy(alpha = 0.9f * alphaScale),
-                                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                                        color = palette.moderateAmber.copy(alpha = 0.88f * alphaScale),
+                                        style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round),
                                     )
                                 }
 
@@ -303,7 +337,7 @@ fun CabinetNetworkGraph(
                                     drawPath(
                                         path = path,
                                         color = palette.minorBlue.copy(alpha = 0.82f * alphaScale),
-                                        style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
+                                        style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round),
                                     )
                                 }
 
@@ -312,7 +346,7 @@ fun CabinetNetworkGraph(
                                         path = path,
                                         color = palette.safeEmerald.copy(alpha = 0.55f * alphaScale),
                                         style = Stroke(
-                                            width = 2.dp.toPx(),
+                                            width = 1.8.dp.toPx(),
                                             cap = StrokeCap.Round,
                                         ),
                                     )
@@ -321,11 +355,11 @@ fun CabinetNetworkGraph(
                                 GraphEdgeSeverity.UNANALYZED -> {
                                     drawPath(
                                         path = path,
-                                        color = palette.inkSecondary.copy(alpha = 0.38f * alphaScale),
+                                        color = palette.inkSecondary.copy(alpha = 0.36f * alphaScale),
                                         style = Stroke(
-                                            width = 1.6.dp.toPx(),
+                                            width = 1.5.dp.toPx(),
                                             cap = StrokeCap.Round,
-                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f),
+                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 9f), 0f),
                                         ),
                                     )
                                 }
@@ -354,8 +388,8 @@ fun CabinetNetworkGraph(
                             }
 
                             drawRoundRect(
-                                color = Color.Black.copy(alpha = 0.08f),
-                                topLeft = topLeft + Offset(0f, 3.dp.toPx()),
+                                color = Color.Black.copy(alpha = if (palette.isDark) 0.24f else 0.06f),
+                                topLeft = topLeft + Offset(0f, 2.dp.toPx()),
                                 size = Size(pillWidth, pillHeight),
                                 cornerRadius = cornerRadius,
                             )
@@ -370,7 +404,7 @@ fun CabinetNetworkGraph(
                                 topLeft = topLeft,
                                 size = Size(pillWidth, pillHeight),
                                 cornerRadius = cornerRadius,
-                                style = Stroke(width = if (isSelected) 2.5.dp.toPx() else 1.4.dp.toPx()),
+                                style = Stroke(width = if (isSelected) 2.2.dp.toPx() else 1.2.dp.toPx()),
                             )
 
                             val maxTextW = (pillWidth - 18.dp.toPx()).toInt().coerceAtLeast(24)
@@ -415,32 +449,32 @@ fun CabinetNetworkGraph(
                             if (node.hasActiveRecall) {
                                 val dotCenter = Offset(topLeft.x + pillWidth - 8.dp.toPx(), topLeft.y + 6.dp.toPx())
                                 drawCircle(
-                                    color = palette.criticalCrimson.copy(alpha = 0.30f * pulseFraction),
-                                    radius = 9.dp.toPx(),
+                                    color = palette.criticalCrimson.copy(alpha = 0.24f * pulseFraction),
+                                    radius = 8.dp.toPx(),
                                     center = dotCenter,
                                 )
                                 drawCircle(
                                     color = palette.criticalCrimson,
-                                    radius = 5.dp.toPx(),
+                                    radius = 4.5.dp.toPx(),
                                     center = dotCenter,
                                 )
                             }
                         }
                     }
 
-                    // Compact zoom & reset controls for crowded cabinets (6+ drugs)
+                    // Compact zoom & reset instrument bar
                     Surface(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(8.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        color = PillScopeColors.SlateSurface.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(12.dp),
+                        color = PillScopeColors.SlateSurface.copy(alpha = 0.94f),
                         border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(
-                                onClick = { zoomScale = (zoomScale - 0.25f).coerceAtLeast(0.75f) },
-                                enabled = zoomScale > 0.76f,
+                                onClick = { targetZoomScale = (targetZoomScale - 0.25f).coerceAtLeast(0.75f) },
+                                enabled = targetZoomScale > 0.76f,
                                 modifier = Modifier.size(36.dp),
                             ) {
                                 Icon(
@@ -450,8 +484,8 @@ fun CabinetNetworkGraph(
                                 )
                             }
                             IconButton(
-                                onClick = { zoomScale = (zoomScale + 0.25f).coerceAtMost(2.0f) },
-                                enabled = zoomScale < 1.99f,
+                                onClick = { targetZoomScale = (targetZoomScale + 0.25f).coerceAtMost(2.0f) },
+                                enabled = targetZoomScale < 1.99f,
                                 modifier = Modifier.size(36.dp),
                             ) {
                                 Icon(
@@ -462,7 +496,7 @@ fun CabinetNetworkGraph(
                             }
                             IconButton(
                                 onClick = {
-                                    zoomScale = 1f
+                                    targetZoomScale = 1f
                                     onResetLayout?.invoke()
                                 },
                                 modifier = Modifier.size(36.dp),
@@ -498,7 +532,7 @@ fun CabinetNetworkGraph(
         if (graphState.unanalyzedEdgeCount > 0) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = PillScopeColors.SurfaceTint,
                 border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
             ) {
@@ -508,7 +542,7 @@ fun CabinetNetworkGraph(
                 ) {
                     val count = graphState.unanalyzedEdgeCount
                     Text(
-                        text = "$count medication ${if (count == 1) "pair has" else "pairs have"} not been checked yet (dashed gray lines).",
+                        text = "$count medication ${if (count == 1) "pair has" else "pairs have"} not been checked yet (dashed lines).",
                         style = MaterialTheme.typography.bodySmall,
                         color = PillScopeColors.InkPrimary,
                     )
@@ -516,7 +550,11 @@ fun CabinetNetworkGraph(
                         Button(
                             onClick = onCheckCabinetInteractions,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PillScopeColors.ClinicalTeal,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.HealthAndSafety,
@@ -534,18 +572,25 @@ fun CabinetNetworkGraph(
         val selectedNode = graphState.selectedNodeId?.let { id ->
             graphState.nodes.firstOrNull { it.medicationId == id }
         }
-        if (selectedNode != null && onInspectMedication != null) {
-            OutlinedButton(
-                onClick = { onInspectMedication(selectedNode.medicationId) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "View details for ${selectedNode.displayName}",
-                    style = MaterialTheme.typography.labelLarge,
-                )
+        AnimatedVisibility(
+            visible = selectedNode != null && onInspectMedication != null,
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
+            if (selectedNode != null && onInspectMedication != null) {
+                OutlinedButton(
+                    onClick = { onInspectMedication(selectedNode.medicationId) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.45f)),
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "View details for ${selectedNode.displayName}",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
             }
         }
 
@@ -561,7 +606,6 @@ fun CabinetNetworkGraph(
             GraphLegendBadge(color = PillScopeColors.InkSecondary.copy(alpha = 0.55f), label = "Not analyzed")
         }
 
-        // Accessible interactive chips for TalkBack & quick inspection of nodes/flagged edges
         if (graphState.nodes.isNotEmpty()) {
             Text(
                 text = "Tap a medication or flagged pair to inspect",
@@ -605,49 +649,60 @@ fun CabinetNetworkGraph(
         }
 
         if (interactiveEdges.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "Flagged interactions (${interactiveEdges.size})",
                     style = MaterialTheme.typography.titleSmall,
                     color = PillScopeColors.InkPrimary,
                 )
-                interactiveEdges.forEach { edge ->
-                    val (bg, fg) = edgeSeverityColors(edge.severity)
-                    Surface(
-                        onClick = { onSelectEdge(edge.id) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        color = PillScopeColors.CardSurface,
-                        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${edge.sourceName} + ${edge.targetName}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = PillScopeColors.InkPrimary,
-                                )
-                                Text(
-                                    text = "${edge.saltA} + ${edge.saltB}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = PillScopeColors.ClinicalTeal,
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PillScopeColors.CardSurface,
+                    border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        interactiveEdges.forEachIndexed { idx, edge ->
+                            if (idx > 0) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 14.dp),
+                                    color = PillScopeColors.SlateBorder.copy(alpha = 0.65f),
                                 )
                             }
-                            Surface(shape = CircleShape, color = bg) {
-                                Text(
-                                    text = edge.severity.name.lowercase().replaceFirstChar { it.uppercase() },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = fg,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                )
+                            val (bg, fg) = edgeSeverityColors(edge.severity)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable { onSelectEdge(edge.id) }
+                                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp),
+                                ) {
+                                    Text(
+                                        text = "${edge.sourceName} + ${edge.targetName}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = PillScopeColors.InkPrimary,
+                                    )
+                                    Text(
+                                        text = "${edge.saltA} + ${edge.saltB}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = PillScopeColors.ClinicalTeal,
+                                    )
+                                }
+                                Surface(shape = CircleShape, color = bg) {
+                                    Text(
+                                        text = edge.severity.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = fg,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -660,10 +715,11 @@ fun CabinetNetworkGraph(
         ModalBottomSheet(
             onDismissRequest = { onSelectEdge(null) },
             containerColor = PillScopeColors.CardSurface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         ) {
             EdgeInteractionDetailSheet(
                 edge = edge,
+                reducedMotion = reducedMotion,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
@@ -693,7 +749,7 @@ private fun GraphLegendBadge(
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Surface(
-            modifier = Modifier.size(9.dp),
+            modifier = Modifier.size(8.dp),
             shape = CircleShape,
             color = color,
         ) {}
@@ -708,6 +764,7 @@ private fun GraphLegendBadge(
 @Composable
 private fun EdgeInteractionDetailSheet(
     edge: GraphEdge,
+    reducedMotion: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val openUri = rememberSafeUriOpener()
@@ -729,7 +786,11 @@ private fun EdgeInteractionDetailSheet(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+            ) {
                 Text(
                     text = "${edge.sourceName} + ${edge.targetName}",
                     style = MaterialTheme.typography.titleLarge,
@@ -739,7 +800,7 @@ private fun EdgeInteractionDetailSheet(
                     text = "${edge.saltA} + ${edge.saltB}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.ClinicalTeal,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                 )
             }
             Surface(shape = CircleShape, color = surfaceColor) {
@@ -753,7 +814,7 @@ private fun EdgeInteractionDetailSheet(
         }
 
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(14.dp),
             color = PillScopeColors.SlateSurface,
             border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
         ) {
@@ -761,7 +822,7 @@ private fun EdgeInteractionDetailSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 val probText = edge.mlMajorProbability?.let { prob ->
                     "Estimated major interaction likelihood: ${(prob * 100).roundToInt()}%"
@@ -772,13 +833,32 @@ private fun EdgeInteractionDetailSheet(
                     color = PillScopeColors.InkPrimary,
                 )
                 edge.mlMajorProbability?.let { prob ->
-                    LinearProgressIndicator(
-                        progress = { prob.toFloat().coerceIn(0f, 1f) },
+                    var shown by remember(edge.id) { mutableStateOf(reducedMotion) }
+                    LaunchedEffect(edge.id) { shown = true }
+                    val fill by animateFloatAsState(
+                        targetValue = if (shown) prob.toFloat().coerceIn(0f, 1f) else 0f,
+                        animationSpec = if (reducedMotion) {
+                            tween(0)
+                        } else {
+                            tween(durationMillis = 480, easing = FastOutSlowInEasing)
+                        },
+                        label = "edgeProbBar",
+                    )
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(7.dp),
-                        color = accent,
-                    )
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(PillScopeColors.SurfaceTint),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fill)
+                                .fillMaxHeight()
+                                .clip(CircleShape)
+                                .background(accent),
+                        )
+                    }
                 }
             }
         }

@@ -1,5 +1,8 @@
 package com.pillscope.app.ui.common
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,6 +44,8 @@ import com.pillscope.app.i18n.AppLanguage
 import com.pillscope.app.i18n.LocalAppLanguage
 import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
 
 @Composable
 fun LanguagePillButton(
@@ -50,13 +56,13 @@ fun LanguagePillButton(
     val language = LocalAppLanguage.current
     val strings = LocalAppStrings.current
     val containerColor = if (darkSurface) {
-        Color.Black.copy(alpha = 0.68f)
+        Color(0xAA131715)
     } else {
         PillScopeColors.CardSurface
     }
-    val contentColor = if (darkSurface) Color.White else PillScopeColors.InkPrimary
+    val contentColor = if (darkSurface) Color(0xFFECEFE9) else PillScopeColors.InkPrimary
     val borderColor = if (darkSurface) {
-        Color.White.copy(alpha = 0.28f)
+        Color.White.copy(alpha = 0.18f)
     } else {
         PillScopeColors.SlateBorder
     }
@@ -103,6 +109,7 @@ fun LanguageAndVoiceSheet(
     onDismiss: () -> Unit,
 ) {
     val strings = LocalAppStrings.current
+    val reducedMotion = rememberReducedMotionEnabled()
     val speedOptions = listOf(
         0.85f to strings.speedSlow,
         0.94f to strings.speedNormal,
@@ -112,7 +119,7 @@ fun LanguageAndVoiceSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = PillScopeColors.CardSurface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
     ) {
         Column(
             modifier = Modifier
@@ -121,11 +128,11 @@ fun LanguageAndVoiceSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Surface(
                     shape = CircleShape,
@@ -137,7 +144,7 @@ fun LanguageAndVoiceSheet(
                         tint = PillScopeColors.ClinicalTealDeep,
                         modifier = Modifier
                             .padding(10.dp)
-                            .size(22.dp),
+                            .size(20.dp),
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
@@ -162,20 +169,35 @@ fun LanguageAndVoiceSheet(
             ) {
                 AppLanguage.entries.forEach { lang ->
                     val isSelected = lang == selectedLanguage
+                    val tileBg by animateColorAsState(
+                        targetValue = if (isSelected) {
+                            PillScopeColors.ClinicalTealContainer.copy(alpha = 0.72f)
+                        } else {
+                            PillScopeColors.SlateSurface
+                        },
+                        animationSpec = tween(PillScopeMotion.FAST_MS),
+                        label = "langTileBg",
+                    )
+                    val tileBorder by animateColorAsState(
+                        targetValue = if (isSelected) {
+                            PillScopeColors.ClinicalTeal
+                        } else {
+                            PillScopeColors.SlateBorder
+                        },
+                        animationSpec = tween(PillScopeMotion.FAST_MS),
+                        label = "langTileBorder",
+                    )
+
                     Surface(
                         onClick = { onSelectLanguage(lang) },
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isSelected) {
-                            PillScopeColors.ClinicalTealContainer.copy(alpha = 0.72f)
-                        } else {
-                            PillScopeColors.SlateSurface
-                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = tileBg,
                         border = BorderStroke(
                             width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
+                            color = tileBorder,
                         ),
                     ) {
                         Row(
@@ -198,7 +220,11 @@ fun LanguageAndVoiceSheet(
                                     color = PillScopeColors.InkSecondary,
                                 )
                             }
-                            if (isSelected) {
+                            AnimatedVisibility(
+                                visible = isSelected,
+                                enter = PillScopeMotion.badgeEnter(reducedMotion),
+                                exit = PillScopeMotion.badgeExit(reducedMotion),
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = null,
@@ -230,75 +256,82 @@ fun LanguageAndVoiceSheet(
                 )
             }
 
+            // Unified hairline-divided voice preferences panel
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = PillScopeColors.SlateSurface,
                 border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(
-                            text = strings.autoSpeakLabel,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = PillScopeColors.InkPrimary,
-                        )
-                        Text(
-                            text = strings.autoSpeakSubtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = PillScopeColors.InkSecondary,
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = strings.autoSpeakLabel,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = PillScopeColors.InkPrimary,
+                            )
+                            Text(
+                                text = strings.autoSpeakSubtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PillScopeColors.InkSecondary,
+                            )
+                        }
+                        Switch(
+                            checked = autoSpeakAnswers,
+                            onCheckedChange = onToggleAutoSpeak,
                         )
                     }
-                    Switch(
-                        checked = autoSpeakAnswers,
-                        onCheckedChange = onToggleAutoSpeak,
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = PillScopeColors.SlateBorder.copy(alpha = 0.7f),
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = strings.cloudVoiceLabel,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = PillScopeColors.InkPrimary,
+                            )
+                            Text(
+                                text = strings.cloudVoiceSubtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PillScopeColors.InkSecondary,
+                            )
+                        }
+                        Switch(
+                            checked = preferCloudVoice,
+                            onCheckedChange = onToggleCloudVoice,
+                        )
+                    }
                 }
             }
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = PillScopeColors.SlateSurface,
-                border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(
-                            text = strings.cloudVoiceLabel,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = PillScopeColors.InkPrimary,
-                        )
-                        Text(
-                            text = strings.cloudVoiceSubtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = PillScopeColors.InkSecondary,
-                        )
-                    }
-                    Switch(
-                        checked = preferCloudVoice,
-                        onCheckedChange = onToggleCloudVoice,
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = strings.speechSpeedLabel,
                     style = MaterialTheme.typography.labelLarge,
                     color = PillScopeColors.InkPrimary,
+                )
+                val segColors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = PillScopeColors.ClinicalTealContainer,
+                    activeContentColor = PillScopeColors.ClinicalTealDeep,
+                    activeBorderColor = PillScopeColors.ClinicalTeal.copy(alpha = 0.45f),
+                    inactiveContainerColor = PillScopeColors.SlateSurface,
+                    inactiveContentColor = PillScopeColors.InkSecondary,
+                    inactiveBorderColor = PillScopeColors.SlateBorder,
                 )
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     speedOptions.forEachIndexed { index, (rate, label) ->
@@ -307,6 +340,7 @@ fun LanguageAndVoiceSheet(
                             selected = selected,
                             onClick = { onChangeSpeechRate(rate) },
                             shape = SegmentedButtonDefaults.itemShape(index = index, count = speedOptions.size),
+                            colors = segColors,
                             label = { Text(label) },
                         )
                     }

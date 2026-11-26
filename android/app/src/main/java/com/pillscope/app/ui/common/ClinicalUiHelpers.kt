@@ -4,7 +4,9 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -172,6 +174,11 @@ fun DosagePresetChips(
                     }
                     onValueChange(next)
                 },
+                shape = RoundedCornerShape(10.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PillScopeColors.ClinicalTealContainer,
+                    selectedLabelColor = PillScopeColors.ClinicalTealDeep,
+                ),
                 label = { Text(preset) },
             )
         }

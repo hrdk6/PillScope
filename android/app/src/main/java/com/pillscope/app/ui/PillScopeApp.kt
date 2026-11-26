@@ -1,14 +1,29 @@
 package com.pillscope.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -21,11 +36,13 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,6 +94,9 @@ import com.pillscope.app.ui.scan.ScanViewModel
 import com.pillscope.app.ui.schedule.ScheduleScreen
 import com.pillscope.app.ui.schedule.ScheduleViewModel
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeEmblem
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
 import com.pillscope.app.voice.SpeechTone
 import com.pillscope.app.voice.VoiceNavTarget
 
@@ -100,59 +121,58 @@ fun PillScopeApp() {
 
     var showLanguageSheet by remember { mutableStateOf(false) }
     val appStrings = remember(selectedLanguage) { AppStringsCatalog.forLanguage(selectedLanguage) }
+    val reducedMotion = rememberReducedMotionEnabled()
 
     CompositionLocalProvider(
         LocalAppLanguage provides selectedLanguage,
         LocalAppStrings provides appStrings,
     ) {
-        when (val session = sessionState) {
-            AuthSessionState.Loading -> {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = PillScopeColors.SlateSurface,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            LoadingIndicator(
-                                modifier = Modifier.size(44.dp),
-                                color = PillScopeColors.ClinicalTeal,
-                            )
-                            Text(
-                                text = appStrings.loadingApp,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = PillScopeColors.InkSecondary,
-                            )
-                        }
-                    }
+        AnimatedContent(
+            targetState = sessionState,
+            contentKey = { state ->
+                when (state) {
+                    AuthSessionState.Loading -> "loading"
+                    AuthSessionState.NeedsConsent -> "consent"
+                    is AuthSessionState.Unauthenticated -> "unauth"
+                    is AuthSessionState.Authenticated -> "auth_${state.user.id}"
                 }
-            }
+            },
+            transitionSpec = { PillScopeMotion.screenTransition(reducedMotion) },
+            label = "sessionTransition",
+        ) { session ->
+            when (session) {
+                AuthSessionState.Loading -> {
+                    SplashLoadingSurface(
+                        appName = appStrings.appName,
+                        loadingText = appStrings.loadingApp,
+                        reducedMotion = reducedMotion,
+                    )
+                }
 
-            AuthSessionState.NeedsConsent -> {
-                OnboardingConsentScreen(
-                    onAccept = authViewModel::acceptOnboardingConsent,
-                    onOpenLanguagePicker = { showLanguageSheet = true },
-                )
-            }
+                AuthSessionState.NeedsConsent -> {
+                    OnboardingConsentScreen(
+                        onAccept = authViewModel::acceptOnboardingConsent,
+                        onOpenLanguagePicker = { showLanguageSheet = true },
+                    )
+                }
 
-            is AuthSessionState.Unauthenticated -> {
-                AuthScreen(
-                    viewModel = authViewModel,
-                    sessionNotice = session.notice,
-                    onOpenLanguagePicker = { showLanguageSheet = true },
-                )
-            }
+                is AuthSessionState.Unauthenticated -> {
+                    AuthScreen(
+                        viewModel = authViewModel,
+                        sessionNotice = session.notice,
+                        onOpenLanguagePicker = { showLanguageSheet = true },
+                    )
+                }
 
-            is AuthSessionState.Authenticated -> {
-                AuthenticatedPillScopeShell(
-                    user = session.user,
-                    offlineResumed = session.offlineResumed,
-                    authViewModel = authViewModel,
-                    languageViewModel = languageViewModel,
-                    onOpenLanguagePicker = { showLanguageSheet = true },
-                )
+                is AuthSessionState.Authenticated -> {
+                    AuthenticatedPillScopeShell(
+                        user = session.user,
+                        offlineResumed = session.offlineResumed,
+                        authViewModel = authViewModel,
+                        languageViewModel = languageViewModel,
+                        onOpenLanguagePicker = { showLanguageSheet = true },
+                    )
+                }
             }
         }
 
@@ -172,6 +192,69 @@ fun PillScopeApp() {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SplashLoadingSurface(
+    appName: String,
+    loadingText: String,
+    reducedMotion: Boolean,
+) {
+    val breatheScale = if (reducedMotion) {
+        1f
+    } else {
+        val transition = rememberInfiniteTransition(label = "splashEmblemBreathe")
+        transition.animateFloat(
+            initialValue = 0.97f,
+            targetValue = 1.03f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1600, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "emblemScale",
+        ).value
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = PillScopeColors.SlateSurface,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                PillScopeEmblem(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .graphicsLayer {
+                            scaleX = breatheScale
+                            scaleY = breatheScale
+                        },
+                )
+                Text(
+                    text = appName,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = PillScopeColors.ClinicalTealDeep,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    LoadingIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = PillScopeColors.ClinicalTeal,
+                    )
+                    Text(
+                        text = loadingText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PillScopeColors.InkSecondary,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AuthenticatedPillScopeShell(
@@ -183,6 +266,7 @@ private fun AuthenticatedPillScopeShell(
 ) {
     val strings = LocalAppStrings.current
     val language = LocalAppLanguage.current
+    val reducedMotion = rememberReducedMotionEnabled()
     val navController = rememberNavController()
     val profileViewModel: ProfileViewModel = hiltViewModel()
     val scanViewModel: ScanViewModel = hiltViewModel()
@@ -286,110 +370,153 @@ private fun AuthenticatedPillScopeShell(
             }
         } == true)
 
+    val navItemColors = NavigationBarItemDefaults.colors(
+        selectedIconColor = PillScopeColors.ClinicalTealDeep,
+        selectedTextColor = PillScopeColors.ClinicalTealDeep,
+        indicatorColor = PillScopeColors.ClinicalTealContainer,
+        unselectedIconColor = PillScopeColors.InkSecondary,
+        unselectedTextColor = PillScopeColors.InkSecondary,
+    )
+
     Scaffold(
         containerColor = PillScopeColors.SlateSurface,
         topBar = {
             if (currentRoute != Routes.SCAN) {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = PillScopeColors.SlateSurface,
-                    ),
-                    title = {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = strings.appName,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = PillScopeColors.ClinicalTealDeep,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                Column {
+                    TopAppBar(
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = PillScopeColors.SlateSurface,
+                        ),
+                        title = {
                             Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(end = 8.dp),
                             ) {
-                                LanguagePillButton(onClick = onOpenLanguagePicker)
-                                ActiveProfilePill(
-                                    profile = activeProfile,
-                                    onClick = openProfileSheet,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    PillScopeEmblem(modifier = Modifier.size(24.dp))
+                                    Text(
+                                        text = strings.appName,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = PillScopeColors.ClinicalTealDeep,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(end = 8.dp),
+                                ) {
+                                    LanguagePillButton(onClick = onOpenLanguagePicker)
+                                    ActiveProfilePill(
+                                        profile = activeProfile,
+                                        onClick = openProfileSheet,
+                                    )
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = PillScopeColors.SlateBorder.copy(alpha = 0.65f),
+                    )
+                }
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = PillScopeColors.CardSurface) {
-                NavigationBarItem(
-                    selected = currentRoute == Routes.SCAN,
-                    onClick = { navigateToTab(Routes.SCAN) },
-                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = strings.navScan) },
-                    label = { Text(strings.navScan, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            Column {
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = PillScopeColors.SlateBorder.copy(alpha = 0.75f),
                 )
-                NavigationBarItem(
-                    selected = currentRoute == Routes.ANALYSIS,
-                    onClick = { navigateToTab(Routes.ANALYSIS) },
-                    icon = {
-                        BadgedBox(
-                            badge = {
-                                if (hasSafetyAlertBadge) {
-                                    Badge(containerColor = PillScopeColors.CriticalBannerContainer)
-                                }
-                            },
-                        ) {
-                            Icon(Icons.Default.HealthAndSafety, contentDescription = strings.navSafety)
-                        }
-                    },
-                    label = { Text(strings.navSafety, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                )
-                NavigationBarItem(
-                    selected = currentRoute == Routes.ASSISTANT,
-                    onClick = { navigateToTab(Routes.ASSISTANT) },
-                    icon = { Icon(Icons.Default.Mic, contentDescription = strings.navAskAi) },
-                    label = { Text(strings.navAskAi, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                )
-                NavigationBarItem(
-                    selected = currentRoute == Routes.CABINET,
-                    onClick = { navigateToTab(Routes.CABINET) },
-                    icon = {
-                        BadgedBox(
-                            badge = {
-                                if (recallBadgeCount > 0) {
-                                    Badge(
-                                        containerColor = PillScopeColors.CriticalBannerContainer,
-                                        contentColor = PillScopeColors.OnCriticalBanner,
+                NavigationBar(
+                    containerColor = PillScopeColors.CardSurface,
+                    tonalElevation = 0.dp,
+                ) {
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.SCAN,
+                        onClick = { navigateToTab(Routes.SCAN) },
+                        colors = navItemColors,
+                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = strings.navScan) },
+                        label = { Text(strings.navScan, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.ANALYSIS,
+                        onClick = { navigateToTab(Routes.ANALYSIS) },
+                        colors = navItemColors,
+                        icon = {
+                            BadgedBox(
+                                badge = {
+                                    NavBadgeReveal(
+                                        visible = hasSafetyAlertBadge,
+                                        reducedMotion = reducedMotion,
                                     ) {
-                                        Text(if (recallBadgeCount > 9) "9+" else recallBadgeCount.toString())
+                                        Badge(containerColor = PillScopeColors.CriticalBannerContainer)
                                     }
-                                }
-                            },
-                        ) {
-                            Icon(Icons.Default.Medication, contentDescription = strings.navCabinet)
-                        }
-                    },
-                    label = { Text(strings.navCabinet, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                )
-                NavigationBarItem(
-                    selected = currentRoute == Routes.SCHEDULE,
-                    onClick = { navigateToTab(Routes.SCHEDULE) },
-                    icon = {
-                        BadgedBox(
-                            badge = {
-                                if (hasScheduleAlertBadge) {
-                                    Badge(containerColor = PillScopeColors.CriticalBannerContainer)
-                                }
-                            },
-                        ) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = strings.navSchedule)
-                        }
-                    },
-                    label = { Text(strings.navSchedule, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                )
+                                },
+                            ) {
+                                Icon(Icons.Default.HealthAndSafety, contentDescription = strings.navSafety)
+                            }
+                        },
+                        label = { Text(strings.navSafety, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.ASSISTANT,
+                        onClick = { navigateToTab(Routes.ASSISTANT) },
+                        colors = navItemColors,
+                        icon = { Icon(Icons.Default.Mic, contentDescription = strings.navAskAi) },
+                        label = { Text(strings.navAskAi, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.CABINET,
+                        onClick = { navigateToTab(Routes.CABINET) },
+                        colors = navItemColors,
+                        icon = {
+                            BadgedBox(
+                                badge = {
+                                    NavBadgeReveal(
+                                        visible = recallBadgeCount > 0,
+                                        reducedMotion = reducedMotion,
+                                    ) {
+                                        Badge(
+                                            containerColor = PillScopeColors.CriticalBannerContainer,
+                                            contentColor = PillScopeColors.OnCriticalBanner,
+                                        ) {
+                                            Text(if (recallBadgeCount > 9) "9+" else recallBadgeCount.toString())
+                                        }
+                                    }
+                                },
+                            ) {
+                                Icon(Icons.Default.Medication, contentDescription = strings.navCabinet)
+                            }
+                        },
+                        label = { Text(strings.navCabinet, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == Routes.SCHEDULE,
+                        onClick = { navigateToTab(Routes.SCHEDULE) },
+                        colors = navItemColors,
+                        icon = {
+                            BadgedBox(
+                                badge = {
+                                    NavBadgeReveal(
+                                        visible = hasScheduleAlertBadge,
+                                        reducedMotion = reducedMotion,
+                                    ) {
+                                        Badge(containerColor = PillScopeColors.CriticalBannerContainer)
+                                    }
+                                },
+                            ) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = strings.navSchedule)
+                            }
+                        },
+                        label = { Text(strings.navSchedule, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                }
             }
         },
     ) { innerPadding ->
@@ -398,7 +525,11 @@ private fun AuthenticatedPillScopeShell(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            if (offlineResumed) {
+            AnimatedVisibility(
+                visible = offlineResumed,
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
                 OfflineSessionStrip(
                     isOfflineGuest = isOfflineGuest,
                     onActionClick = {
@@ -415,10 +546,16 @@ private fun AuthenticatedPillScopeShell(
                 )
             }
 
+            val enterDur = if (reducedMotion) 0 else 190
+            val exitDur = if (reducedMotion) 0 else 130
             NavHost(
                 navController = navController,
                 startDestination = Routes.SCAN,
                 modifier = Modifier.weight(1f),
+                enterTransition = { fadeIn(tween(enterDur, easing = FastOutSlowInEasing)) },
+                exitTransition = { fadeOut(tween(exitDur, easing = FastOutSlowInEasing)) },
+                popEnterTransition = { fadeIn(tween(enterDur, easing = FastOutSlowInEasing)) },
+                popExitTransition = { fadeOut(tween(exitDur, easing = FastOutSlowInEasing)) },
             ) {
                 composable(Routes.SCAN) {
                     CameraScanScreen(
@@ -549,6 +686,21 @@ private fun AuthenticatedPillScopeShell(
 }
 
 @Composable
+private fun NavBadgeReveal(
+    visible: Boolean,
+    reducedMotion: Boolean,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = PillScopeMotion.badgeEnter(reducedMotion),
+        exit = PillScopeMotion.badgeExit(reducedMotion),
+    ) {
+        content()
+    }
+}
+
+@Composable
 private fun OfflineSessionStrip(
     isOfflineGuest: Boolean,
     onActionClick: () -> Unit,
@@ -557,43 +709,56 @@ private fun OfflineSessionStrip(
     val strings = LocalAppStrings.current
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         color = PillScopeColors.ModerateAmberSurface,
-        border = BorderStroke(1.dp, PillScopeColors.ModerateAmber.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, PillScopeColors.ModerateAmber.copy(alpha = 0.35f)),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(PillScopeColors.ModerateAmber),
+            )
             Row(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Icon(
-                    imageVector = Icons.Default.CloudOff,
-                    contentDescription = null,
-                    tint = PillScopeColors.ModerateAmberDark,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = if (isOfflineGuest) {
-                        strings.offlineGuestStrip
-                    } else {
-                        strings.offlineCachedStrip
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = PillScopeColors.ModerateAmberDark,
-                )
-            }
-            TextButton(onClick = onActionClick) {
-                Text(
-                    text = if (isOfflineGuest) strings.signInAction else strings.retrySyncAction,
-                    color = PillScopeColors.ModerateAmberDark,
-                )
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = PillScopeColors.ModerateAmberDark,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = if (isOfflineGuest) {
+                            strings.offlineGuestStrip
+                        } else {
+                            strings.offlineCachedStrip
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PillScopeColors.ModerateAmberDark,
+                    )
+                }
+                TextButton(onClick = onActionClick) {
+                    Text(
+                        text = if (isOfflineGuest) strings.signInAction else strings.retrySyncAction,
+                        color = PillScopeColors.ModerateAmberDark,
+                    )
+                }
             }
         }
     }

@@ -1,16 +1,32 @@
 package com.pillscope.app.ui.cabinet
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -38,8 +54,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
@@ -85,6 +99,9 @@ import com.pillscope.app.ui.common.formatSaltComponents
 import com.pillscope.app.ui.common.normalizeSaltInput
 import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
+import com.pillscope.app.ui.theme.tactilePressScale
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -97,6 +114,7 @@ fun CabinetScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalAppStrings.current
+    val reducedMotion = rememberReducedMotionEnabled()
     val medications by viewModel.medications.collectAsStateWithLifecycle()
     val recalls by viewModel.activeRecalls.collectAsStateWithLifecycle()
     val activeAllergies by viewModel.activeProfileAllergies.collectAsStateWithLifecycle()
@@ -105,15 +123,21 @@ fun CabinetScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var pendingDeleteMed by remember { mutableStateOf<CabinetMedication?>(null) }
 
+    val activeCount = remember(medications) { medications.count { it.isActive } }
+    val pausedCount = medications.size - activeCount
+    val fabInteraction = remember { MutableInteractionSource() }
+
     Scaffold(
         modifier = modifier,
         containerColor = PillScopeColors.SlateSurface,
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
+                interactionSource = fabInteraction,
                 containerColor = PillScopeColors.ClinicalTeal,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.tactilePressScale(fabInteraction, pressedScale = 0.93f),
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add medication")
             }
@@ -131,18 +155,35 @@ fun CabinetScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = strings.medicationCabinetTitle,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = PillScopeColors.InkPrimary,
-                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = strings.medicationCabinetTitle,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = PillScopeColors.InkPrimary,
+                    )
+                    if (medications.isNotEmpty()) {
+                        val summary = if (pausedCount > 0) {
+                            "$activeCount active, $pausedCount paused"
+                        } else {
+                            "$activeCount active"
+                        }
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PillScopeColors.InkSecondary,
+                        )
+                    }
+                }
                 IconButton(
                     onClick = viewModel::syncCabinet,
                     enabled = !uiState.isSyncing,
                 ) {
                     if (uiState.isSyncing) {
                         LoadingIndicator(
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                             color = PillScopeColors.ClinicalTeal,
                         )
                     } else {
@@ -155,11 +196,20 @@ fun CabinetScreen(
                 }
             }
 
+            val segColors = SegmentedButtonDefaults.colors(
+                activeContainerColor = PillScopeColors.ClinicalTealContainer,
+                activeContentColor = PillScopeColors.ClinicalTealDeep,
+                activeBorderColor = PillScopeColors.ClinicalTeal.copy(alpha = 0.45f),
+                inactiveContainerColor = PillScopeColors.CardSurface,
+                inactiveContentColor = PillScopeColors.InkSecondary,
+                inactiveBorderColor = PillScopeColors.SlateBorder,
+            )
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 SegmentedButton(
                     selected = uiState.displayMode == CabinetDisplayMode.LIST,
                     onClick = { viewModel.setDisplayMode(CabinetDisplayMode.LIST) },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    colors = segColors,
                     icon = {
                         Icon(
                             imageVector = Icons.Default.ViewAgenda,
@@ -173,6 +223,7 @@ fun CabinetScreen(
                     selected = uiState.displayMode == CabinetDisplayMode.NETWORK,
                     onClick = { viewModel.setDisplayMode(CabinetDisplayMode.NETWORK) },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    colors = segColors,
                     icon = {
                         Icon(
                             imageVector = Icons.Default.Hub,
@@ -184,88 +235,102 @@ fun CabinetScreen(
                 )
             }
 
-            if (uiState.displayMode == CabinetDisplayMode.NETWORK) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CabinetAlertBanners(
-                        recalls = recalls,
-                        statusBanner = uiState.statusBanner,
-                        statusIsError = uiState.statusIsError,
-                        duplicateAlerts = uiState.lastDuplicateAlerts,
-                        allergyAlerts = uiState.lastAllergyAlerts,
-                        onDismissStatus = viewModel::dismissStatusBanner,
-                        onDismissSafetyAlerts = viewModel::dismissSafetyAlerts,
-                    )
-                    CabinetNetworkGraph(
-                        graphState = graphState,
-                        onSelectNode = viewModel::selectGraphNode,
-                        onSelectEdge = viewModel::selectGraphEdge,
-                        onMoveNode = viewModel::moveGraphNode,
-                        onResetLayout = viewModel::resetGraphLayout,
-                        onInspectMedication = viewModel::openMedicationDetail,
-                        onCheckCabinetInteractions = if (onRunCabinetInteractionCheck != null) {
-                            {
-                                viewModel.buildCabinetInteractionCheckRequest()
-                                    ?.let(onRunCabinetInteractionCheck)
-                            }
-                        } else {
-                            null
-                        },
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(bottom = 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    if (recalls.isNotEmpty() ||
-                        uiState.statusBanner != null ||
-                        uiState.lastDuplicateAlerts.isNotEmpty() ||
-                        uiState.lastAllergyAlerts.isNotEmpty()
+            AnimatedContent(
+                targetState = uiState.displayMode,
+                modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    val dur = if (reducedMotion) 0 else 200
+                    fadeIn(tween(dur, easing = FastOutSlowInEasing)) togetherWith
+                        fadeOut(tween(dur / 2, easing = FastOutSlowInEasing))
+                },
+                label = "cabinetModeTransition",
+            ) { mode ->
+                if (mode == CabinetDisplayMode.NETWORK) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 88.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        item(key = "cabinet_banners") {
-                            CabinetAlertBanners(
-                                recalls = recalls,
-                                statusBanner = uiState.statusBanner,
-                                statusIsError = uiState.statusIsError,
-                                duplicateAlerts = uiState.lastDuplicateAlerts,
-                                allergyAlerts = uiState.lastAllergyAlerts,
-                                onDismissStatus = viewModel::dismissStatusBanner,
-                                onDismissSafetyAlerts = viewModel::dismissSafetyAlerts,
-                            )
-                        }
+                        CabinetAlertBanners(
+                            recalls = recalls,
+                            statusBanner = uiState.statusBanner,
+                            statusIsError = uiState.statusIsError,
+                            duplicateAlerts = uiState.lastDuplicateAlerts,
+                            allergyAlerts = uiState.lastAllergyAlerts,
+                            reducedMotion = reducedMotion,
+                            onDismissStatus = viewModel::dismissStatusBanner,
+                            onDismissSafetyAlerts = viewModel::dismissSafetyAlerts,
+                        )
+                        CabinetNetworkGraph(
+                            graphState = graphState,
+                            onSelectNode = viewModel::selectGraphNode,
+                            onSelectEdge = viewModel::selectGraphEdge,
+                            onMoveNode = viewModel::moveGraphNode,
+                            onResetLayout = viewModel::resetGraphLayout,
+                            onInspectMedication = viewModel::openMedicationDetail,
+                            onCheckCabinetInteractions = if (onRunCabinetInteractionCheck != null) {
+                                {
+                                    viewModel.buildCabinetInteractionCheckRequest()
+                                        ?.let(onRunCabinetInteractionCheck)
+                                }
+                            } else {
+                                null
+                            },
+                        )
                     }
-
-                    if (medications.isEmpty()) {
-                        item(key = "cabinet_empty") {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
-                                border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
-                            ) {
-                                Text(
-                                    text = strings.emptyCabinetMessage,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = PillScopeColors.InkSecondary,
-                                    modifier = Modifier.padding(18.dp),
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 88.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (recalls.isNotEmpty() ||
+                            uiState.statusBanner != null ||
+                            uiState.lastDuplicateAlerts.isNotEmpty() ||
+                            uiState.lastAllergyAlerts.isNotEmpty()
+                        ) {
+                            item(key = "cabinet_banners") {
+                                CabinetAlertBanners(
+                                    recalls = recalls,
+                                    statusBanner = uiState.statusBanner,
+                                    statusIsError = uiState.statusIsError,
+                                    duplicateAlerts = uiState.lastDuplicateAlerts,
+                                    allergyAlerts = uiState.lastAllergyAlerts,
+                                    reducedMotion = reducedMotion,
+                                    onDismissStatus = viewModel::dismissStatusBanner,
+                                    onDismissSafetyAlerts = viewModel::dismissSafetyAlerts,
                                 )
                             }
                         }
-                    } else {
-                        items(medications, key = { it.id }) { med ->
-                            CabinetMedicationCard(
-                                medication = med,
-                                onClick = { viewModel.openMedicationDetail(med.id) },
-                                onToggleActive = { active -> viewModel.toggleActive(med.id, active) },
-                                onDelete = { pendingDeleteMed = med },
-                            )
+
+                        if (medications.isEmpty()) {
+                            item(key = "cabinet_empty") {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = PillScopeColors.CardSurface,
+                                    border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                                ) {
+                                    Text(
+                                        text = strings.emptyCabinetMessage,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = PillScopeColors.InkSecondary,
+                                        modifier = Modifier.padding(18.dp),
+                                    )
+                                }
+                            }
+                        } else {
+                            items(medications, key = { it.id }) { med ->
+                                CabinetMedicationCard(
+                                    medication = med,
+                                    onClick = { viewModel.openMedicationDetail(med.id) },
+                                    onToggleActive = { active -> viewModel.toggleActive(med.id, active) },
+                                    onDelete = { pendingDeleteMed = med },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
                         }
                     }
                 }
@@ -295,7 +360,9 @@ fun CabinetScreen(
     pendingDeleteMed?.let { med ->
         AlertDialog(
             onDismissRequest = { pendingDeleteMed = null },
-            title = { Text(strings.removeMedicationTitle) },
+            containerColor = PillScopeColors.CardSurface,
+            shape = RoundedCornerShape(20.dp),
+            title = { Text(strings.removeMedicationTitle, style = MaterialTheme.typography.titleLarge) },
             text = {
                 Text("${strings.removeFromCabinet}: ${med.displayName}?")
             },
@@ -325,11 +392,12 @@ fun CabinetScreen(
         ModalBottomSheet(
             onDismissRequest = viewModel::closeMedicationDetail,
             containerColor = PillScopeColors.CardSurface,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         ) {
             MedicationDetailBottomSheetContent(
                 medication = detail,
                 isLoading = uiState.isLoadingDetail,
+                reducedMotion = reducedMotion,
                 onSaveEdits = { newName, newSaltsCsv, newSchedule ->
                     viewModel.updateMedicationDetails(detail.id, newName, newSchedule, newSaltsCsv)
                 },
@@ -357,24 +425,29 @@ private fun CabinetAlertBanners(
     statusIsError: Boolean,
     duplicateAlerts: List<DuplicateSaltAlertDto>,
     allergyAlerts: List<AllergyAlertDto>,
+    reducedMotion: Boolean,
     onDismissStatus: () -> Unit,
     onDismissSafetyAlerts: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (recalls.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = recalls.isNotEmpty(),
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
             Surface(
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = PillScopeColors.CriticalBannerContainer,
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Default.Warning,
@@ -396,61 +469,71 @@ private fun CabinetAlertBanners(
                         )
                     }
                     Text(
-                        text = "Matched by active ingredient against US FDA recalls — verify lot number on your package.",
+                        text = "Matched by active ingredient against US FDA recalls. Verify lot number on your package.",
                         style = MaterialTheme.typography.labelSmall,
-                        color = PillScopeColors.OnCriticalBanner.copy(alpha = 0.9f),
+                        color = PillScopeColors.OnCriticalBanner.copy(alpha = 0.88f),
                     )
                 }
             }
         }
 
-        statusBanner?.let { msg ->
-            val bg = if (statusIsError) {
-                PillScopeColors.ModerateAmberSurface
-            } else {
-                PillScopeColors.ClinicalTealContainer
-            }
-            val fg = if (statusIsError) {
-                PillScopeColors.ModerateAmberDark
-            } else {
-                PillScopeColors.ClinicalTealDeep
-            }
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = bg,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+        AnimatedVisibility(
+            visible = statusBanner != null,
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
+            statusBanner?.let { msg ->
+                val bg = if (statusIsError) {
+                    PillScopeColors.ModerateAmberSurface
+                } else {
+                    PillScopeColors.ClinicalTealContainer
+                }
+                val fg = if (statusIsError) {
+                    PillScopeColors.ModerateAmberDark
+                } else {
+                    PillScopeColors.ClinicalTealDeep
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = bg,
                 ) {
-                    Text(
-                        text = msg,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = fg,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(
-                        onClick = onDismissStatus,
-                        modifier = Modifier.size(36.dp),
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Dismiss status banner",
-                            tint = fg,
-                            modifier = Modifier.size(16.dp),
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = fg,
+                            modifier = Modifier.weight(1f),
                         )
+                        IconButton(
+                            onClick = onDismissStatus,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss status banner",
+                                tint = fg,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                 }
             }
         }
 
-        if (duplicateAlerts.isNotEmpty() || allergyAlerts.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = duplicateAlerts.isNotEmpty() || allergyAlerts.isNotEmpty(),
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = PillScopeColors.CriticalBannerContainer,
             ) {
                 Column(
@@ -483,14 +566,14 @@ private fun CabinetAlertBanners(
                     }
                     allergyAlerts.forEach { allergy ->
                         Text(
-                            text = "• Allergy (${allergy.allergen}): ${allergy.reason}",
+                            text = "Allergy (${allergy.allergen}): ${allergy.reason}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = PillScopeColors.OnCriticalBanner,
                         )
                     }
                     duplicateAlerts.forEach { dup ->
                         Text(
-                            text = "• Duplicate ingredient ${dup.canonicalSalt} already active in ${dup.existingDisplayName}",
+                            text = "Duplicate ingredient ${dup.canonicalSalt} already active in ${dup.existingDisplayName}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = PillScopeColors.OnCriticalBanner,
                         )
@@ -508,6 +591,7 @@ private fun CabinetMedicationCard(
     onClick: () -> Unit,
     onToggleActive: (Boolean) -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val strings = LocalAppStrings.current
     val isPaused = !medication.isActive
@@ -515,17 +599,35 @@ private fun CabinetMedicationCard(
         formatSaltComponents(medication.genericSalts, medication.canonicalSaltKeys)
     }
 
-    Card(
+    val containerBg by animateColorAsState(
+        targetValue = if (isPaused) PillScopeColors.SurfaceTint else PillScopeColors.CardSurface,
+        animationSpec = tween(PillScopeMotion.FAST_MS),
+        label = "medCardBg",
+    )
+    val railColor by animateColorAsState(
+        targetValue = when {
+            medication.hasActiveRecall && !isPaused -> PillScopeColors.CriticalCrimson
+            isPaused -> PillScopeColors.SlateBorder
+            else -> PillScopeColors.ClinicalTeal
+        },
+        animationSpec = tween(PillScopeMotion.FAST_MS),
+        label = "medRailColor",
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (isPaused) 0.68f else 1f,
+        animationSpec = tween(PillScopeMotion.FAST_MS),
+        label = "medContentAlpha",
+    )
+
+    Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isPaused) PillScopeColors.SurfaceTint else PillScopeColors.CardSurface,
-        ),
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = containerBg,
         border = BorderStroke(
-            width = if (medication.hasActiveRecall && !isPaused) 1.5.dp else 1.dp,
+            width = 1.dp,
             color = if (medication.hasActiveRecall && !isPaused) {
-                PillScopeColors.CriticalCrimson
+                PillScopeColors.CriticalCrimson.copy(alpha = 0.5f)
             } else {
                 PillScopeColors.SlateBorder
             },
@@ -534,113 +636,126 @@ private fun CabinetMedicationCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(railColor),
+            )
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .alpha(if (isPaused) 0.72f else 1f),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                    .padding(start = 12.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .alpha(contentAlpha),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Text(
-                        text = medication.displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = PillScopeColors.InkPrimary,
-                    )
-                    if (isPaused) {
-                        Surface(
-                            shape = CircleShape,
-                            color = PillScopeColors.SlateBorder.copy(alpha = 0.65f),
-                        ) {
-                            Text(
-                                text = strings.pausedLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = PillScopeColors.InkPrimary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                    if (medication.hasActiveRecall) {
-                        Surface(
-                            shape = CircleShape,
-                            color = PillScopeColors.CriticalCrimsonSurface,
-                        ) {
-                            Text(
-                                text = "FDA Recall",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = PillScopeColors.CriticalCrimsonDark,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text = saltText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = PillScopeColors.ClinicalTeal,
-                )
-                if (medication.lifestyleTriggers.isNotEmpty()) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        medication.lifestyleTriggers.take(3).forEach { trigger ->
+                        Text(
+                            text = medication.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = PillScopeColors.InkPrimary,
+                        )
+                        if (isPaused) {
                             Surface(
                                 shape = CircleShape,
-                                color = PillScopeColors.ModerateAmberSurface,
+                                color = PillScopeColors.SlateBorder.copy(alpha = 0.7f),
                             ) {
                                 Text(
-                                    text = trigger.type.lowercase().replace("_", " ").replaceFirstChar { it.uppercase() },
+                                    text = strings.pausedLabel,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = PillScopeColors.ModerateAmberDark,
+                                    color = PillScopeColors.InkPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        if (medication.hasActiveRecall) {
+                            Surface(
+                                shape = CircleShape,
+                                color = PillScopeColors.CriticalCrimsonSurface,
+                            ) {
+                                Text(
+                                    text = "FDA Recall",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PillScopeColors.CriticalCrimsonDark,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
                         }
                     }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        imageVector = if (medication.isPendingSync) {
-                            Icons.Default.CloudQueue
-                        } else {
-                            Icons.Default.CloudDone
-                        },
-                        contentDescription = null,
-                        tint = if (medication.isPendingSync) {
-                            PillScopeColors.ModerateAmber
-                        } else {
-                            PillScopeColors.SafeEmerald
-                        },
-                        modifier = Modifier.size(14.dp),
-                    )
                     Text(
-                        text = buildString {
-                            append(if (medication.isPendingSync) strings.pendingSyncLabel else strings.syncedLabel)
-                            medication.dosageSchedule?.let { append(", $it") }
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = PillScopeColors.InkSecondary,
+                        text = saltText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PillScopeColors.ClinicalTeal,
+                    )
+                    if (medication.lifestyleTriggers.isNotEmpty()) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            medication.lifestyleTriggers.take(3).forEach { trigger ->
+                                Surface(
+                                    shape = CircleShape,
+                                    color = PillScopeColors.ModerateAmberSurface,
+                                ) {
+                                    Text(
+                                        text = trigger.type.lowercase().replace("_", " ").replaceFirstChar { it.uppercase() },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = PillScopeColors.ModerateAmberDark,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (medication.isPendingSync) {
+                                Icons.Default.CloudQueue
+                            } else {
+                                Icons.Default.CloudDone
+                            },
+                            contentDescription = null,
+                            tint = if (medication.isPendingSync) {
+                                PillScopeColors.ModerateAmber
+                            } else {
+                                PillScopeColors.SafeEmerald
+                            },
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = buildString {
+                                append(if (medication.isPendingSync) strings.pendingSyncLabel else strings.syncedLabel)
+                                medication.dosageSchedule?.let { append(", $it") }
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PillScopeColors.InkSecondary,
+                        )
+                    }
+                }
+
+                Switch(checked = medication.isActive, onCheckedChange = onToggleActive)
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Remove ${medication.displayName}",
+                        tint = PillScopeColors.InkSecondary,
                     )
                 }
-            }
-
-            Switch(checked = medication.isActive, onCheckedChange = onToggleActive)
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Remove ${medication.displayName}",
-                    tint = PillScopeColors.InkSecondary,
-                )
             }
         }
     }
@@ -651,6 +766,7 @@ private fun CabinetMedicationCard(
 private fun MedicationDetailBottomSheetContent(
     medication: CabinetMedication,
     isLoading: Boolean,
+    reducedMotion: Boolean,
     onSaveEdits: (displayName: String, rawSaltsCsv: String?, dosageSchedule: String?) -> Unit,
     onToggleActive: (Boolean) -> Unit,
     onRequestDelete: () -> Unit,
@@ -678,7 +794,9 @@ private fun MedicationDetailBottomSheetContent(
     val normalizedDraftSalts = remember(editedSaltsCsv) { normalizeSaltInput(editedSaltsCsv) }
 
     Column(
-        modifier = modifier.verticalScroll(rememberScrollState()),
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .animateContentSize(PillScopeMotion.settleSpring()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -696,12 +814,12 @@ private fun MedicationDetailBottomSheetContent(
                     text = formatSaltComponents(medication.genericSalts, medication.canonicalSaltKeys),
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.ClinicalTeal,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isLoading) {
-                    LoadingIndicator(modifier = Modifier.size(22.dp), color = PillScopeColors.ClinicalTeal)
+                    LoadingIndicator(modifier = Modifier.size(20.dp), color = PillScopeColors.ClinicalTeal)
                 }
                 IconButton(onClick = { isEditing = !isEditing }) {
                     Icon(
@@ -713,10 +831,9 @@ private fun MedicationDetailBottomSheetContent(
             }
         }
 
-        // Active / Paused control directly accessible from both List and Network views
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
             color = PillScopeColors.SlateSurface,
             border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
         ) {
@@ -750,9 +867,13 @@ private fun MedicationDetailBottomSheetContent(
             }
         }
 
-        if (isEditing) {
+        AnimatedVisibility(
+            visible = isEditing,
+            enter = PillScopeMotion.panelEnter(reducedMotion),
+            exit = PillScopeMotion.panelExit(reducedMotion),
+        ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = PillScopeColors.SlateSurface,
                 border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.4f)),
             ) {
@@ -767,6 +888,7 @@ private fun MedicationDetailBottomSheetContent(
                         onValueChange = { editedName = it },
                         label = { Text("Medication name") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -775,6 +897,7 @@ private fun MedicationDetailBottomSheetContent(
                         label = { Text("Active ingredients (comma separated)") },
                         supportingText = { Text("Strengths like 500mg are extracted automatically.") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
@@ -782,6 +905,7 @@ private fun MedicationDetailBottomSheetContent(
                         onValueChange = { editedSchedule = it },
                         label = { Text("Dosage schedule (e.g. Twice daily)") },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     DosagePresetChips(
@@ -799,6 +923,7 @@ private fun MedicationDetailBottomSheetContent(
                                 editedSchedule = medication.dosageSchedule.orEmpty()
                                 isEditing = false
                             },
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f),
                         ) {
                             Text("Cancel")
@@ -814,6 +939,7 @@ private fun MedicationDetailBottomSheetContent(
                                 isEditing = false
                             },
                             enabled = editedName.isNotBlank() && normalizedDraftSalts.isNotEmpty(),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f),
                         ) {
                             Text("Save")
@@ -821,7 +947,9 @@ private fun MedicationDetailBottomSheetContent(
                     }
                 }
             }
-        } else {
+        }
+
+        if (!isEditing) {
             Text(
                 text = "Dosage schedule: ${medication.dosageSchedule?.takeIf { it.isNotBlank() } ?: "Not set (tap edit)"}",
                 style = MaterialTheme.typography.bodyMedium,
@@ -838,7 +966,7 @@ private fun MedicationDetailBottomSheetContent(
             )
             medication.activeRecalls.forEach { recall ->
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = PillScopeColors.CriticalCrimsonSurface,
                     border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.4f)),
                 ) {
@@ -907,7 +1035,7 @@ private fun MedicationDetailBottomSheetContent(
             )
             medication.lifestyleTriggers.forEach { trigger ->
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = PillScopeColors.SlateSurface,
                     border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
                 ) {
@@ -939,7 +1067,7 @@ private fun MedicationDetailBottomSheetContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.55f)),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = PillScopeColors.CriticalCrimson,
@@ -990,7 +1118,9 @@ private fun AddMedicationDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(strings.addToCabinetTitle) },
+        containerColor = PillScopeColors.CardSurface,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text(strings.addToCabinetTitle, style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(
                 modifier = Modifier
@@ -1015,6 +1145,7 @@ private fun AddMedicationDialog(
                         }
                     },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (suggestions.isNotEmpty() && selectedBrandId == null) {
@@ -1074,6 +1205,7 @@ private fun AddMedicationDialog(
                     label = { Text(strings.activeIngredientsCsv) },
                     supportingText = { Text("e.g. acetaminophen 650mg") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -1081,6 +1213,7 @@ private fun AddMedicationDialog(
                     onValueChange = { schedule = it },
                     label = { Text(strings.dosageScheduleOptional) },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 DosagePresetChips(
@@ -1091,7 +1224,7 @@ private fun AddMedicationDialog(
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = PillScopeColors.CriticalCrimsonSurface,
-                        border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.5f)),
+                        border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.45f)),
                     ) {
                         Column(
                             modifier = Modifier
@@ -1106,14 +1239,14 @@ private fun AddMedicationDialog(
                             )
                             inlineAllergyAlerts.forEach { alert ->
                                 Text(
-                                    text = "• Allergy (${alert.allergen}): ${alert.reason}",
+                                    text = "Allergy (${alert.allergen}): ${alert.reason}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = PillScopeColors.CriticalCrimsonDark,
                                 )
                             }
                             inlineDuplicateMatches.forEach { (salt, medName) ->
                                 Text(
-                                    text = "• Duplicate ingredient '$salt' already active in $medName",
+                                    text = "Duplicate ingredient '$salt' already active in $medName",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = PillScopeColors.CriticalCrimsonDark,
                                 )

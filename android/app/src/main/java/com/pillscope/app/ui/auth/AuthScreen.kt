@@ -1,10 +1,17 @@
 package com.pillscope.app.ui.auth
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,8 +19,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextObfuscationMode
@@ -22,16 +29,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
@@ -63,7 +69,12 @@ import com.pillscope.app.BuildConfig
 import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.common.LanguagePillButton
 import com.pillscope.app.ui.common.rememberSafeUriOpener
+import com.pillscope.app.ui.theme.OrchestratedReveal
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeEmblem
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
+import com.pillscope.app.ui.theme.tactilePressScale
 
 private enum class AuthTab { SIGN_IN, CREATE_ACCOUNT }
 
@@ -78,6 +89,7 @@ fun AuthScreen(
     val strings = LocalAppStrings.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val openUri = rememberSafeUriOpener()
+    val reducedMotion = rememberReducedMotionEnabled()
 
     var selectedTab by rememberSaveable { mutableStateOf(AuthTab.SIGN_IN) }
     var email by rememberSaveable { mutableStateOf("") }
@@ -86,6 +98,8 @@ fun AuthScreen(
     var passwordVisible by remember { mutableStateOf(false) }
 
     val passwordText = passwordState.text.toString()
+    val submitEnabled = !uiState.isSubmitting && email.isNotBlank() && passwordText.isNotBlank()
+    val submitInteraction = remember { MutableInteractionSource() }
 
     LaunchedEffect(passwordText) {
         if (uiState.passwordError != null || uiState.errorMessage != null) {
@@ -94,7 +108,7 @@ fun AuthScreen(
     }
 
     val submitAuth = {
-        if (!uiState.isSubmitting && email.isNotBlank() && passwordText.isNotBlank()) {
+        if (submitEnabled) {
             if (selectedTab == AuthTab.SIGN_IN) {
                 viewModel.signIn(email, passwordText)
             } else {
@@ -114,69 +128,83 @@ fun AuthScreen(
                 .imePadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                PillScopeEmblem(modifier = Modifier.size(48.dp))
                 LanguagePillButton(onClick = onOpenLanguagePicker)
             }
 
-            Surface(
-                shape = CircleShape,
-                color = PillScopeColors.ClinicalTealContainer,
-                modifier = Modifier.size(64.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.HealthAndSafety,
-                    contentDescription = null,
-                    tint = PillScopeColors.ClinicalTealDeep,
-                    modifier = Modifier.padding(14.dp),
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = strings.appName,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = PillScopeColors.ClinicalTealDeep,
-                )
-                Text(
-                    text = strings.appTagline,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = PillScopeColors.InkSecondary,
-                )
-            }
-
-            sessionNotice?.takeIf { it.isNotBlank() }?.let { notice ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = PillScopeColors.ModerateAmberSurface,
-                    border = BorderStroke(1.dp, PillScopeColors.ModerateAmber.copy(alpha = 0.5f)),
-                ) {
+            OrchestratedReveal {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = notice,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PillScopeColors.ModerateAmberDark,
-                        modifier = Modifier.padding(12.dp),
+                        text = strings.appName,
+                        style = MaterialTheme.typography.displaySmall,
+                        color = PillScopeColors.ClinicalTealDeep,
+                    )
+                    Text(
+                        text = strings.appTagline,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = PillScopeColors.InkSecondary,
                     )
                 }
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+            AnimatedVisibility(
+                visible = !sessionNotice.isNullOrBlank(),
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                sessionNotice?.takeIf { it.isNotBlank() }?.let { notice ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = PillScopeColors.ModerateAmberSurface,
+                        border = BorderStroke(1.dp, PillScopeColors.ModerateAmber.copy(alpha = 0.35f)),
+                    ) {
+                        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .fillMaxHeight()
+                                    .background(PillScopeColors.ModerateAmber),
+                            )
+                            Text(
+                                text = notice,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PillScopeColors.ModerateAmberDark,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(animationSpec = PillScopeMotion.settleSpring()),
+                shape = RoundedCornerShape(18.dp),
+                color = PillScopeColors.CardSurface,
                 border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
+                    val segColors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = PillScopeColors.ClinicalTealContainer,
+                        activeContentColor = PillScopeColors.ClinicalTealDeep,
+                        activeBorderColor = PillScopeColors.ClinicalTeal.copy(alpha = 0.5f),
+                        inactiveContainerColor = PillScopeColors.SlateSurface,
+                        inactiveContentColor = PillScopeColors.InkSecondary,
+                        inactiveBorderColor = PillScopeColors.SlateBorder,
+                    )
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         SegmentedButton(
                             selected = selectedTab == AuthTab.SIGN_IN,
@@ -185,6 +213,7 @@ fun AuthScreen(
                                 viewModel.clearError()
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                            colors = segColors,
                             label = { Text(strings.signIn) },
                         )
                         SegmentedButton(
@@ -194,11 +223,16 @@ fun AuthScreen(
                                 viewModel.clearError()
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                            colors = segColors,
                             label = { Text(strings.createAccount) },
                         )
                     }
 
-                    if (selectedTab == AuthTab.CREATE_ACCOUNT) {
+                    AnimatedVisibility(
+                        visible = selectedTab == AuthTab.CREATE_ACCOUNT,
+                        enter = PillScopeMotion.panelEnter(reducedMotion),
+                        exit = PillScopeMotion.panelExit(reducedMotion),
+                    ) {
                         OutlinedTextField(
                             value = displayName,
                             onValueChange = { displayName = it },
@@ -207,7 +241,7 @@ fun AuthScreen(
                             label = { Text(strings.yourNameOptional) },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                         )
                     }
 
@@ -229,7 +263,7 @@ fun AuthScreen(
                             keyboardType = KeyboardType.Email,
                             imeAction = ImeAction.Next,
                         ),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                     )
 
                     OutlinedSecureTextField(
@@ -271,42 +305,63 @@ fun AuthScreen(
                             imeAction = ImeAction.Done,
                         ),
                         onKeyboardAction = { submitAuth() },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                     )
 
-                    uiState.errorMessage?.let { err ->
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = PillScopeColors.CriticalCrimsonSurface,
-                        ) {
-                            Text(
-                                text = err,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = PillScopeColors.CriticalCrimsonDark,
-                                modifier = Modifier.padding(12.dp),
-                            )
+                    AnimatedVisibility(
+                        visible = !uiState.errorMessage.isNullOrBlank(),
+                        enter = PillScopeMotion.panelEnter(reducedMotion),
+                        exit = PillScopeMotion.panelExit(reducedMotion),
+                    ) {
+                        uiState.errorMessage?.let { err ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                color = PillScopeColors.CriticalCrimsonSurface,
+                                border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.35f)),
+                            ) {
+                                Text(
+                                    text = err,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = PillScopeColors.CriticalCrimsonDark,
+                                    modifier = Modifier.padding(12.dp),
+                                )
+                            }
                         }
                     }
 
                     Button(
                         onClick = submitAuth,
-                        enabled = !uiState.isSubmitting && email.isNotBlank() && passwordText.isNotBlank(),
+                        enabled = submitEnabled,
+                        interactionSource = submitInteraction,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp),
-                        shape = RoundedCornerShape(16.dp),
+                            .height(50.dp)
+                            .tactilePressScale(submitInteraction, enabled = submitEnabled),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PillScopeColors.ClinicalTeal,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            disabledContainerColor = PillScopeColors.SurfaceTint,
+                            disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.55f),
+                        ),
                     ) {
                         if (uiState.isSubmitting) {
-                            LoadingIndicator(modifier = Modifier.size(22.dp))
+                            LoadingIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
                         } else {
                             Text(
                                 if (selectedTab == AuthTab.SIGN_IN) strings.signIn else strings.createAccount,
+                                style = MaterialTheme.typography.labelLarge,
                             )
                         }
                     }
                 }
             }
+
+            HorizontalDivider(color = PillScopeColors.SlateBorder.copy(alpha = 0.7f))
 
             OutlinedButton(
                 onClick = viewModel::continueOfflineGuest,
@@ -314,28 +369,31 @@ fun AuthScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = PillScopeColors.InkPrimary,
+                ),
             ) {
                 Icon(
                     imageVector = Icons.Default.CloudOff,
                     contentDescription = null,
+                    tint = PillScopeColors.InkSecondary,
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(strings.useOfflineScanner)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
-                    onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) },
-                ) {
-                    Text(strings.privacyPolicy)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) }) {
+                    Text(strings.privacyPolicy, color = PillScopeColors.ClinicalTeal)
                 }
-                TextButton(
-                    onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) },
-                ) {
-                    Text(strings.accountDeletion)
+                TextButton(onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) }) {
+                    Text(strings.accountDeletion, color = PillScopeColors.ClinicalTeal)
                 }
             }
         }

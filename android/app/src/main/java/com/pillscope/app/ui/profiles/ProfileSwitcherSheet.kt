@@ -1,5 +1,9 @@
 package com.pillscope.app.ui.profiles
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -74,6 +78,8 @@ import com.pillscope.app.i18n.LocalAppLanguage
 import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.ui.theme.PillScopeMotion
+import com.pillscope.app.ui.theme.rememberReducedMotionEnabled
 
 private val CommonAllergenPresets = listOf("Penicillin", "NSAIDs", "Sulfa", "Aspirin", "Cephalosporins")
 private val RelationshipOptions = listOf("self" to "Self", "parent" to "Parent", "spouse" to "Spouse", "child" to "Child", "other" to "Other")
@@ -92,7 +98,7 @@ private fun formatProfileSubtitle(profile: UserProfile): String {
         null
     }
     return when {
-        showRelationship && allergySummary != null -> "$relLabel · $allergySummary"
+        showRelationship && allergySummary != null -> "$relLabel, $allergySummary"
         showRelationship -> relLabel
         allergySummary != null -> allergySummary
         else -> "No drug allergies listed"
@@ -107,13 +113,13 @@ fun ActiveProfilePill(
     darkSurface: Boolean = false,
 ) {
     val containerColor = if (darkSurface) {
-        Color.Black.copy(alpha = 0.68f)
+        Color(0xAA131715)
     } else {
         PillScopeColors.CardSurface
     }
-    val contentColor = if (darkSurface) Color.White else PillScopeColors.InkPrimary
+    val contentColor = if (darkSurface) Color(0xFFECEFE9) else PillScopeColors.InkPrimary
     val borderColor = if (darkSurface) {
-        Color.White.copy(alpha = 0.28f)
+        Color.White.copy(alpha = 0.18f)
     } else {
         PillScopeColors.SlateBorder
     }
@@ -126,7 +132,7 @@ fun ActiveProfilePill(
         border = BorderStroke(1.dp, borderColor),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -158,7 +164,7 @@ fun ActiveProfilePill(
             Icon(
                 imageVector = Icons.Default.ExpandMore,
                 contentDescription = "Switch profile",
-                tint = contentColor.copy(alpha = 0.78f),
+                tint = contentColor.copy(alpha = 0.72f),
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -195,6 +201,7 @@ fun ProfileSwitcherSheet(
 ) {
     val strings = LocalAppStrings.current
     val language = LocalAppLanguage.current
+    val reducedMotion = rememberReducedMotionEnabled()
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
@@ -256,7 +263,7 @@ fun ProfileSwitcherSheet(
         onDismissRequest = { guardUnsavedAllergies(onDismiss) },
         sheetState = sheetState,
         containerColor = PillScopeColors.CardSurface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
     ) {
         Column(
             modifier = Modifier
@@ -264,11 +271,12 @@ fun ProfileSwitcherSheet(
                 .imePadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
+                .animateContentSize(PillScopeMotion.settleSpring())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
                     text = strings.familyProfilesTitle,
                     style = MaterialTheme.typography.headlineSmall,
@@ -281,13 +289,12 @@ fun ProfileSwitcherSheet(
                 )
             }
 
-            // Quick Language & Voice access row inside Profile & Settings sheet
             Surface(
                 onClick = onOpenLanguagePicker,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = PillScopeColors.ClinicalTealContainer.copy(alpha = 0.45f),
-                border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(14.dp),
+                color = PillScopeColors.ClinicalTealContainer.copy(alpha = 0.48f),
+                border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.35f)),
             ) {
                 Row(
                     modifier = Modifier
@@ -314,7 +321,7 @@ fun ProfileSwitcherSheet(
                                 color = PillScopeColors.ClinicalTealDeep,
                             )
                             Text(
-                                text = "${language.nativeName} · ${language.englishName}",
+                                text = "${language.nativeName} (${language.englishName})",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = PillScopeColors.ClinicalTeal,
                             )
@@ -328,33 +335,46 @@ fun ProfileSwitcherSheet(
                 }
             }
 
-            statusMessage?.takeIf { it.isNotBlank() }?.let { msg ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = PillScopeColors.SafeEmeraldSurface,
-                ) {
-                    Text(
-                        text = msg,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = PillScopeColors.SafeEmeraldDark,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+            AnimatedVisibility(
+                visible = !statusMessage.isNullOrBlank(),
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                statusMessage?.takeIf { it.isNotBlank() }?.let { msg ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = PillScopeColors.SafeEmeraldSurface,
+                    ) {
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PillScopeColors.SafeEmeraldDark,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
 
-            (errorMessage ?: accountActionError)?.takeIf { it.isNotBlank() }?.let { err ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = PillScopeColors.CriticalCrimsonSurface,
-                ) {
-                    Text(
-                        text = err,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = PillScopeColors.CriticalCrimsonDark,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+            val combinedError = errorMessage ?: accountActionError
+            AnimatedVisibility(
+                visible = !combinedError.isNullOrBlank(),
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                combinedError?.takeIf { it.isNotBlank() }?.let { err ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = PillScopeColors.CriticalCrimsonSurface,
+                    ) {
+                        Text(
+                            text = err,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PillScopeColors.CriticalCrimsonDark,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
 
@@ -362,6 +382,20 @@ fun ProfileSwitcherSheet(
                 profiles.forEach { profile ->
                     val selected = profile.id == activeProfile.id
                     val isBeingEdited = editingProfile?.id == profile.id
+                    val rowBg by animateColorAsState(
+                        targetValue = if (selected) {
+                            PillScopeColors.ClinicalTealContainer.copy(alpha = 0.55f)
+                        } else {
+                            PillScopeColors.SlateSurface
+                        },
+                        animationSpec = tween(PillScopeMotion.FAST_MS),
+                        label = "profileRowBg",
+                    )
+                    val rowBorder by animateColorAsState(
+                        targetValue = if (selected) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
+                        animationSpec = tween(PillScopeMotion.FAST_MS),
+                        label = "profileRowBorder",
+                    )
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Surface(
                             onClick = {
@@ -371,15 +405,11 @@ fun ProfileSwitcherSheet(
                                     guardUnsavedAllergies(onDismiss)
                                 }
                             },
-                            shape = RoundedCornerShape(18.dp),
-                            color = if (selected) {
-                                PillScopeColors.ClinicalTealContainer.copy(alpha = 0.55f)
-                            } else {
-                                PillScopeColors.SlateSurface
-                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = rowBg,
                             border = BorderStroke(
                                 width = if (selected) 1.5.dp else 1.dp,
-                                color = if (selected) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
+                                color = rowBorder,
                             ),
                         ) {
                             Row(
@@ -408,7 +438,7 @@ fun ProfileSwitcherSheet(
                                                     text = "Default",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = PillScopeColors.InkSecondary,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                                                 )
                                             }
                                         }
@@ -460,11 +490,15 @@ fun ProfileSwitcherSheet(
                             }
                         }
 
-                        if (isBeingEdited) {
+                        AnimatedVisibility(
+                            visible = isBeingEdited,
+                            enter = PillScopeMotion.panelEnter(reducedMotion),
+                            exit = PillScopeMotion.panelExit(reducedMotion),
+                        ) {
                             Surface(
-                                shape = RoundedCornerShape(18.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 color = PillScopeColors.SlateSurface,
-                                border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.45f)),
+                                border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.4f)),
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -483,7 +517,7 @@ fun ProfileSwitcherSheet(
                                         modifier = Modifier.fillMaxWidth(),
                                         singleLine = true,
                                         label = { Text("Profile name") },
-                                        shape = RoundedCornerShape(14.dp),
+                                        shape = RoundedCornerShape(12.dp),
                                     )
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -493,6 +527,7 @@ fun ProfileSwitcherSheet(
                                             FilterChip(
                                                 selected = editRelationship == key,
                                                 onClick = { editRelationship = key },
+                                                shape = RoundedCornerShape(10.dp),
                                                 label = { Text(label) },
                                             )
                                         }
@@ -502,7 +537,7 @@ fun ProfileSwitcherSheet(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .heightIn(min = 48.dp)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(RoundedCornerShape(10.dp))
                                                 .toggleable(
                                                     value = editMakeDefault,
                                                     role = Role.Checkbox,
@@ -530,7 +565,7 @@ fun ProfileSwitcherSheet(
                                         OutlinedButton(
                                             onClick = { editingProfile = null },
                                             modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                         ) {
                                             Text("Cancel")
                                         }
@@ -546,7 +581,7 @@ fun ProfileSwitcherSheet(
                                             },
                                             enabled = editName.isNotBlank(),
                                             modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = RoundedCornerShape(12.dp),
                                         ) {
                                             Text("Save changes")
                                         }
@@ -578,12 +613,16 @@ fun ProfileSwitcherSheet(
                             modifier = Modifier.size(18.dp),
                         )
                         Text(
-                            text = "${strings.drugAllergiesTitle} · ${activeProfile.name}",
+                            text = "${strings.drugAllergiesTitle} (${activeProfile.name})",
                             style = MaterialTheme.typography.titleMedium,
                             color = PillScopeColors.InkPrimary,
                         )
                     }
-                    if (hasUnsavedAllergyChanges) {
+                    AnimatedVisibility(
+                        visible = hasUnsavedAllergyChanges,
+                        enter = PillScopeMotion.badgeEnter(reducedMotion),
+                        exit = PillScopeMotion.badgeExit(reducedMotion),
+                    ) {
                         Surface(
                             shape = CircleShape,
                             color = PillScopeColors.ModerateAmberSurface,
@@ -614,6 +653,7 @@ fun ProfileSwitcherSheet(
                                 selected = true,
                                 onClick = { editableAllergies = editableAllergies - allergen },
                                 label = { Text(allergen) },
+                                shape = CircleShape,
                                 trailingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Close,
@@ -641,6 +681,7 @@ fun ProfileSwitcherSheet(
                         FilterChip(
                             selected = false,
                             onClick = { editableAllergies = editableAllergies + preset },
+                            shape = RoundedCornerShape(10.dp),
                             label = { Text("+ $preset") },
                         )
                     }
@@ -659,7 +700,7 @@ fun ProfileSwitcherSheet(
                         label = { Text("Add allergen (comma separated)") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { commitAllergenInput() }),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(12.dp),
                     )
                     IconButton(
                         onClick = commitAllergenInput,
@@ -680,8 +721,10 @@ fun ProfileSwitcherSheet(
                 Button(
                     onClick = commitSaveAllergies,
                     enabled = hasUnsavedAllergyChanges,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 46.dp),
+                    shape = RoundedCornerShape(12.dp),
                 ) {
                     Text(if (hasUnsavedAllergyChanges) strings.saveAllergyChanges else strings.allergiesUpToDate)
                 }
@@ -689,75 +732,99 @@ fun ProfileSwitcherSheet(
 
             HorizontalDivider(color = PillScopeColors.SlateBorder)
 
-            if (!showNewProfileForm) {
+            AnimatedVisibility(
+                visible = !showNewProfileForm,
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
                 OutlinedButton(
                     onClick = { showNewProfileForm = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 46.dp),
+                    shape = RoundedCornerShape(12.dp),
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(strings.addFamilyProfile)
                 }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "New profile",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = PillScopeColors.InkPrimary,
-                    )
-                    OutlinedTextField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Name (e.g., Mom, Dad)") },
-                        shape = RoundedCornerShape(14.dp),
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+            }
+
+            AnimatedVisibility(
+                visible = showNewProfileForm,
+                enter = PillScopeMotion.panelEnter(reducedMotion),
+                exit = PillScopeMotion.panelExit(reducedMotion),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = PillScopeColors.SlateSurface,
+                    border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        RelationshipOptions.forEach { (key, label) ->
-                            FilterChip(
-                                selected = newRelationship == key,
-                                onClick = { newRelationship = key },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = newAllergiesInput,
-                        onValueChange = { newAllergiesInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Initial allergies (comma separated)") },
-                        shape = RoundedCornerShape(14.dp),
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = { showNewProfileForm = false },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                        Text(
+                            text = "New profile",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = PillScopeColors.InkPrimary,
+                        )
+                        OutlinedTextField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Name (e.g., Mom, Dad)") },
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text("Cancel")
+                            RelationshipOptions.forEach { (key, label) ->
+                                FilterChip(
+                                    selected = newRelationship == key,
+                                    onClick = { newRelationship = key },
+                                    shape = RoundedCornerShape(10.dp),
+                                    label = { Text(label) },
+                                )
+                            }
                         }
-                        Button(
-                            onClick = {
-                                val parsedAllergies = parseAllergenInput(newAllergiesInput)
-                                onCreateProfile(newName.trim(), newRelationship, parsedAllergies)
-                                newName = ""
-                                newAllergiesInput = ""
-                                showNewProfileForm = false
-                            },
-                            enabled = newName.isNotBlank(),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                        OutlinedTextField(
+                            value = newAllergiesInput,
+                            onValueChange = { newAllergiesInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Initial allergies (comma separated)") },
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Text("Create profile")
+                            OutlinedButton(
+                                onClick = { showNewProfileForm = false },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text("Cancel")
+                            }
+                            Button(
+                                onClick = {
+                                    val parsedAllergies = parseAllergenInput(newAllergiesInput)
+                                    onCreateProfile(newName.trim(), newRelationship, parsedAllergies)
+                                    newName = ""
+                                    newAllergiesInput = ""
+                                    showNewProfileForm = false
+                                },
+                                enabled = newName.isNotBlank(),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text("Create profile")
+                            }
                         }
                     }
                 }
@@ -791,23 +858,21 @@ fun ProfileSwitcherSheet(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) },
-                    ) {
-                        Text("Privacy Policy")
+                    TextButton(onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) }) {
+                        Text("Privacy Policy", color = PillScopeColors.ClinicalTeal)
                     }
-                    TextButton(
-                        onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) },
-                    ) {
-                        Text("Data Deletion Policy")
+                    TextButton(onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) }) {
+                        Text("Data Deletion Policy", color = PillScopeColors.ClinicalTeal)
                     }
                 }
 
                 if (isOfflineGuest) {
                     Button(
                         onClick = onSignInFromOfflineGuest,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 46.dp),
+                        shape = RoundedCornerShape(12.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Login,
@@ -825,7 +890,7 @@ fun ProfileSwitcherSheet(
                         OutlinedButton(
                             onClick = { showSignOutConfirmDialog = true },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Logout,
@@ -842,7 +907,7 @@ fun ProfileSwitcherSheet(
                             },
                             enabled = !isDeletingAccount,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = PillScopeColors.CriticalBannerContainer,
                                 contentColor = PillScopeColors.OnCriticalBanner,
@@ -874,7 +939,9 @@ fun ProfileSwitcherSheet(
     pendingUnsavedAction?.let { nextAction ->
         AlertDialog(
             onDismissRequest = { pendingUnsavedAction = null },
-            title = { Text("Save allergy changes?") },
+            containerColor = PillScopeColors.CardSurface,
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Save allergy changes?", style = MaterialTheme.typography.titleLarge) },
             text = {
                 Text("You have unsaved drug allergy edits for ${activeProfile.name}. Save them before continuing?")
             },
@@ -907,7 +974,9 @@ fun ProfileSwitcherSheet(
     pendingDeleteProfile?.let { target ->
         AlertDialog(
             onDismissRequest = { pendingDeleteProfile = null },
-            title = { Text("Delete profile?") },
+            containerColor = PillScopeColors.CardSurface,
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Delete profile?", style = MaterialTheme.typography.titleLarge) },
             text = {
                 Text(
                     "Delete ${target.name} and all medications, schedules, and scan history saved under this profile? This cannot be undone.",
@@ -938,7 +1007,9 @@ fun ProfileSwitcherSheet(
     if (showSignOutConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showSignOutConfirmDialog = false },
-            title = { Text("Sign out of PillScope?") },
+            containerColor = PillScopeColors.CardSurface,
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Sign out of PillScope?", style = MaterialTheme.typography.titleLarge) },
             text = {
                 Text(
                     if (hasPendingOfflineChanges) {
@@ -965,7 +1036,7 @@ fun ProfileSwitcherSheet(
                         disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
                     ),
                 ) {
-                    Text(if (hasPendingOfflineChanges) "Sign out & discard" else "Sign out")
+                    Text(if (hasPendingOfflineChanges) "Sign out and discard" else "Sign out")
                 }
             },
             dismissButton = {
@@ -979,7 +1050,9 @@ fun ProfileSwitcherSheet(
     if (showDeleteAccountDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteAccountDialog = false },
-            title = { Text("Permanently delete account?") },
+            containerColor = PillScopeColors.CardSurface,
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Permanently delete account?", style = MaterialTheme.typography.titleLarge) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -990,6 +1063,7 @@ fun ProfileSwitcherSheet(
                         value = deleteAccountConfirmText,
                         onValueChange = { deleteAccountConfirmText = it },
                         singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
                         label = { Text("Type DELETE") },
                     )
                 }

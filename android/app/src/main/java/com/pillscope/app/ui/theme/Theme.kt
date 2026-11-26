@@ -21,6 +21,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * PillScope Apothecary & Pharmacopoeia Palette.
+ *
+ * Grounded in archival mineral paper, deep botanical spruce, oxblood carmine, burnished ochre,
+ * and muted slate indigo — zero neon accents in either Light or Dark mode, while preserving
+ * WCAG AA/AAA contrast across every clinical alert state.
+ */
 @Immutable
 data class PillScopePalette(
     val clinicalTeal: Color,
@@ -49,66 +56,83 @@ data class PillScopePalette(
     val hudBackdrop: Color,
     val hudAmberGlow: Color,
     val hudEmeraldLock: Color,
+    val onHudLock: Color,
     val isDark: Boolean,
 )
 
 private val LightPalette = PillScopePalette(
-    clinicalTeal = Color(0xFF0B5D5B),
-    clinicalTealDeep = Color(0xFF063B3A),
-    clinicalTealContainer = Color(0xFFD4F3EE),
-    slateSurface = Color(0xFFF4F7F7),
+    // Deep Apothecary Spruce & Eucalyptus Wash
+    clinicalTeal = Color(0xFF1F4F43),
+    clinicalTealDeep = Color(0xFF13342C),
+    clinicalTealContainer = Color(0xFFDDE8E3),
+    // Mineral Porcelain & Stone Paper Hierarchy
+    slateSurface = Color(0xFFF5F6F3),
     cardSurface = Color(0xFFFFFFFF),
-    surfaceTint = Color(0xFFEDF3F3),
-    slateBorder = Color(0xFFD8E3E4),
-    inkPrimary = Color(0xFF0F1E22),
-    inkSecondary = Color(0xFF4A6066),
-    criticalCrimson = Color(0xFFC61D2C),
-    criticalCrimsonDark = Color(0xFF7A0D18),
-    criticalCrimsonSurface = Color(0xFFFDECEE),
-    criticalBannerContainer = Color(0xFFC61D2C),
-    onCriticalBanner = Color.White,
-    moderateAmber = Color(0xFFC46A08),
-    moderateAmberDark = Color(0xFF7C3F00),
-    moderateAmberSurface = Color(0xFFFEF4E4),
-    minorBlue = Color(0xFF1D4ED8),
-    minorBlueDark = Color(0xFF1E3A8A),
-    minorBlueSurface = Color(0xFFEFF6FF),
-    safeEmerald = Color(0xFF127A4B),
-    safeEmeraldDark = Color(0xFF0A4B2E),
-    safeEmeraldSurface = Color(0xFFE6F7EE),
-    hudBackdrop = Color(0xFF071316),
-    hudAmberGlow = Color(0xFFF59E0B),
-    hudEmeraldLock = Color(0xFF10B981),
+    surfaceTint = Color(0xFFEAECE7),
+    slateBorder = Color(0xFFD4D9D2),
+    inkPrimary = Color(0xFF18201D),
+    inkSecondary = Color(0xFF535F5A),
+    // Oxblood Carmine (authoritative matte danger, non-neon)
+    criticalCrimson = Color(0xFF9E1F28),
+    criticalCrimsonDark = Color(0xFF6D131A),
+    criticalCrimsonSurface = Color(0xFFF8E8E9),
+    criticalBannerContainer = Color(0xFF921B24),
+    onCriticalBanner = Color(0xFFFFFFFF),
+    // Burnished Ochre (earthy caution, non-neon)
+    moderateAmber = Color(0xFF9A5A16),
+    moderateAmberDark = Color(0xFF693B0B),
+    moderateAmberSurface = Color(0xFFF7EFE3),
+    // Archival Slate Indigo (clinical references & minor severity)
+    minorBlue = Color(0xFF2D537B),
+    minorBlueDark = Color(0xFF1E3A57),
+    minorBlueSurface = Color(0xFFEBF0F6),
+    // Botanical Cypress (verified safe & dose completion)
+    safeEmerald = Color(0xFF286448),
+    safeEmeraldDark = Color(0xFF1A4531),
+    safeEmeraldSurface = Color(0xFFE7F0EB),
+    // Matte Anodized Optical Viewfinder
+    hudBackdrop = Color(0xFF131715),
+    hudAmberGlow = Color(0xFFD6A156),
+    hudEmeraldLock = Color(0xFF8FC0A6),
+    onHudLock = Color(0xFF10241C),
     isDark = false,
 )
 
 private val DarkPalette = PillScopePalette(
-    clinicalTeal = Color(0xFF4FD1C5),
-    clinicalTealDeep = Color(0xFFB2F5EA),
-    clinicalTealContainer = Color(0xFF103E3D),
-    slateSurface = Color(0xFF0C1417),
-    cardSurface = Color(0xFF142024),
-    surfaceTint = Color(0xFF1B2B30),
-    slateBorder = Color(0xFF283D43),
-    inkPrimary = Color(0xFFEBF4F5),
-    inkSecondary = Color(0xFF9EB5BC),
-    criticalCrimson = Color(0xFFEF4444),
-    criticalCrimsonDark = Color(0xFFFECACA),
-    criticalCrimsonSurface = Color(0xFF3F151A),
-    criticalBannerContainer = Color(0xFFB41B29),
-    onCriticalBanner = Color.White,
-    moderateAmber = Color(0xFFF59E0B),
-    moderateAmberDark = Color(0xFFFDE68A),
-    moderateAmberSurface = Color(0xFF3B280D),
-    minorBlue = Color(0xFF60A5FA),
-    minorBlueDark = Color(0xFFBFDBFE),
-    minorBlueSurface = Color(0xFF172554),
-    safeEmerald = Color(0xFF34D399),
-    safeEmeraldDark = Color(0xFFA7F3D0),
-    safeEmeraldSurface = Color(0xFF0E3524),
-    hudBackdrop = Color(0xFF050C0E),
-    hudAmberGlow = Color(0xFFF59E0B),
-    hudEmeraldLock = Color(0xFF10B981),
+    // Muted Mineral Celadon & Pine Obsidian (zero neon cyan/emerald)
+    clinicalTeal = Color(0xFF7FB3A2),
+    clinicalTealDeep = Color(0xFFC7DDD5),
+    clinicalTealContainer = Color(0xFF1E352E),
+    // Deep Botanical Charcoal Hierarchy
+    slateSurface = Color(0xFF131716),
+    cardSurface = Color(0xFF1B211F),
+    surfaceTint = Color(0xFF232B28),
+    slateBorder = Color(0xFF303B37),
+    inkPrimary = Color(0xFFECEFE9),
+    inkSecondary = Color(0xFF9CA9A4),
+    // Dusty Carmine Rose & Matte Oxblood Banner
+    criticalCrimson = Color(0xFFD9787E),
+    criticalCrimsonDark = Color(0xFFF3CDD0),
+    criticalCrimsonSurface = Color(0xFF351B1E),
+    criticalBannerContainer = Color(0xFF8C1E26),
+    onCriticalBanner = Color(0xFFFAF6F6),
+    // Antique Brass Ochre
+    moderateAmber = Color(0xFFD4A05A),
+    moderateAmberDark = Color(0xFFEFE0C6),
+    moderateAmberSurface = Color(0xFF312617),
+    // Calm Steel Periwinkle
+    minorBlue = Color(0xFF89ADD2),
+    minorBlueDark = Color(0xFFD2E2F2),
+    minorBlueSurface = Color(0xFF1C2836),
+    // Muted Botanical Sage
+    safeEmerald = Color(0xFF7BB295),
+    safeEmeraldDark = Color(0xFFCCE3D6),
+    safeEmeraldSurface = Color(0xFF192C22),
+    // Matte Anodized Optical Viewfinder
+    hudBackdrop = Color(0xFF0E1210),
+    hudAmberGlow = Color(0xFFD6A156),
+    hudEmeraldLock = Color(0xFF8FC0A6),
+    onHudLock = Color(0xFF10241C),
     isDark = true,
 )
 
@@ -116,7 +140,7 @@ val LocalPillScopePalette = staticCompositionLocalOf { LightPalette }
 
 /**
  * Adaptive semantic colors that automatically follow Light/Dark mode inside @Composable scopes,
- * while preserving static fallback values for non-composable callers.
+ * while preserving matte optical fallback values for non-composable callers.
  */
 object PillScopeColors {
     val ClinicalTeal: Color
@@ -170,20 +194,21 @@ object PillScopeColors {
     val SafeEmeraldSurface: Color
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.safeEmeraldSurface
 
-    val HudBackdrop: Color = Color(0xFF071316)
-    val HudAmberGlow: Color = Color(0xFFF59E0B)
-    val HudEmeraldLock: Color = Color(0xFF10B981)
+    val HudBackdrop: Color = Color(0xFF131715)
+    val HudAmberGlow: Color = Color(0xFFD6A156)
+    val HudEmeraldLock: Color = Color(0xFF8FC0A6)
+    val OnHudLock: Color = Color(0xFF10241C)
 }
 
-private val ClinicalLightColorScheme = lightColorScheme(
+private val ApothecaryLightColorScheme = lightColorScheme(
     primary = LightPalette.clinicalTeal,
     onPrimary = Color.White,
     primaryContainer = LightPalette.clinicalTealContainer,
     onPrimaryContainer = LightPalette.clinicalTealDeep,
-    secondary = Color(0xFF28474E),
+    secondary = Color(0xFF3E524C),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDCEBEE),
-    onSecondaryContainer = Color(0xFF132E34),
+    secondaryContainer = Color(0xFFE3EAE6),
+    onSecondaryContainer = Color(0xFF1E2D29),
     tertiary = LightPalette.safeEmerald,
     onTertiary = Color.White,
     tertiaryContainer = LightPalette.safeEmeraldSurface,
@@ -199,20 +224,20 @@ private val ClinicalLightColorScheme = lightColorScheme(
     errorContainer = LightPalette.criticalCrimsonSurface,
     onErrorContainer = LightPalette.criticalCrimsonDark,
     outline = LightPalette.slateBorder,
-    outlineVariant = Color(0xFFE6EEEE),
+    outlineVariant = Color(0xFFE3E7E1),
 )
 
-private val ClinicalDarkColorScheme = darkColorScheme(
+private val ApothecaryDarkColorScheme = darkColorScheme(
     primary = DarkPalette.clinicalTeal,
-    onPrimary = Color(0xFF042625),
+    onPrimary = Color(0xFF0E241E),
     primaryContainer = DarkPalette.clinicalTealContainer,
     onPrimaryContainer = DarkPalette.clinicalTealDeep,
-    secondary = Color(0xFF93C5CC),
-    onSecondary = Color(0xFF0A2429),
-    secondaryContainer = Color(0xFF1D353A),
-    onSecondaryContainer = Color(0xFFDCEBEE),
+    secondary = Color(0xFFA2B8B0),
+    onSecondary = Color(0xFF152520),
+    secondaryContainer = Color(0xFF24332E),
+    onSecondaryContainer = Color(0xFFDDE6E2),
     tertiary = DarkPalette.safeEmerald,
-    onTertiary = Color(0xFF052E1C),
+    onTertiary = Color(0xFF0E2419),
     tertiaryContainer = DarkPalette.safeEmeraldSurface,
     onTertiaryContainer = DarkPalette.safeEmeraldDark,
     background = DarkPalette.slateSurface,
@@ -222,56 +247,66 @@ private val ClinicalDarkColorScheme = darkColorScheme(
     surfaceVariant = DarkPalette.surfaceTint,
     onSurfaceVariant = DarkPalette.inkSecondary,
     error = DarkPalette.criticalCrimson,
-    onError = Color.White,
+    onError = Color(0xFF360E12),
     errorContainer = DarkPalette.criticalCrimsonSurface,
     onErrorContainer = DarkPalette.criticalCrimsonDark,
     outline = DarkPalette.slateBorder,
-    outlineVariant = Color(0xFF1E3035),
+    outlineVariant = Color(0xFF27312E),
 )
 
-private val ExpressiveClinicalShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(28.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+/**
+ * Deliberate radius hierarchy: tighter nested controls (8-12dp), structured ledger surfaces (16dp),
+ * and sculptural framing reserved for optical viewfinders and modal sheets (24-28dp).
+ */
+private val ApothecaryShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
-private val ClinicalTypography = Typography(
+/**
+ * Dual-voice Pharmacopoeia Typography:
+ * Editorial serif headlines lend calm clinical gravitas and distinction, while clean humanist
+ * sans-serif carries interactive UI, multilingual body copy, and tabular clinical metrics.
+ */
+private val PharmacopoeiaTypography = Typography(
     displaySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Serif,
+        fontWeight = FontWeight.Medium,
         fontSize = 32.sp,
-        lineHeight = 38.sp,
+        lineHeight = 40.sp,
         letterSpacing = (-0.5).sp,
         fontFeatureSettings = "tnum",
     ),
     headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 26.sp,
-        lineHeight = 32.sp,
+        fontFamily = FontFamily.Serif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 27.sp,
+        lineHeight = 34.sp,
         letterSpacing = (-0.4).sp,
     ),
     headlineSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Serif,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = (-0.3).sp,
+        lineHeight = 29.sp,
+        letterSpacing = (-0.25).sp,
     ),
     titleLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 19.sp,
-        lineHeight = 25.sp,
-        letterSpacing = (-0.2).sp,
+        lineHeight = 26.sp,
+        letterSpacing = (-0.15).sp,
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp,
+        letterSpacing = (-0.1).sp,
     ),
     titleSmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -283,13 +318,19 @@ private val ClinicalTypography = Typography(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
-        lineHeight = 22.sp,
+        lineHeight = 23.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
-        lineHeight = 20.sp,
+        lineHeight = 21.sp,
+    ),
+    bodySmall = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 13.sp,
+        lineHeight = 19.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -320,13 +361,13 @@ fun PillScopeTheme(
     content: @Composable () -> Unit,
 ) {
     val palette = if (darkTheme) DarkPalette else LightPalette
-    val colorScheme = if (darkTheme) ClinicalDarkColorScheme else ClinicalLightColorScheme
+    val colorScheme = if (darkTheme) ApothecaryDarkColorScheme else ApothecaryLightColorScheme
     CompositionLocalProvider(LocalPillScopePalette provides palette) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
-            motionScheme = MotionScheme.expressive(),
-            shapes = ExpressiveClinicalShapes,
-            typography = ClinicalTypography,
+            motionScheme = MotionScheme.standard(),
+            shapes = ApothecaryShapes,
+            typography = PharmacopoeiaTypography,
             content = content,
         )
     }

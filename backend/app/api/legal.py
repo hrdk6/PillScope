@@ -24,45 +24,50 @@ _PRIVACY_HTML = """<!DOCTYPE html>
   <title>PillScope Privacy Policy &amp; Medical Disclaimer</title>
   <style>
     :root {
-      --bg: #f4f7f7;
+      --bg: #f5f6f3;
       --surface: #ffffff;
-      --ink: #0f1e22;
-      --muted: #4a6066;
-      --heading: #063b3a;
-      --accent: #0b5d5b;
-      --border: #d8e3e4;
-      --callout-bg: #fef4e4;
-      --callout-border: #c46a08;
-      --callout-ink: #7c3f00;
+      --ink: #18201d;
+      --muted: #535f5a;
+      --heading: #13342c;
+      --accent: #1f4f43;
+      --border: #d4d9d2;
+      --callout-bg: #f7efe3;
+      --callout-border: #9a5a16;
+      --callout-ink: #693b0b;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0c1417;
-        --surface: #142024;
-        --ink: #ebf4f5;
-        --muted: #9eb5bc;
-        --heading: #b2f5ea;
-        --accent: #4fd1c5;
-        --border: #283d43;
-        --callout-bg: #3b280d;
-        --callout-border: #f59e0b;
-        --callout-ink: #fde68a;
+        --bg: #131716;
+        --surface: #1b211f;
+        --ink: #ecefe9;
+        --muted: #9ca9a4;
+        --heading: #c7ddd5;
+        --accent: #7fb3a2;
+        --border: #303b37;
+        --callout-bg: #312617;
+        --callout-border: #d4a05a;
+        --callout-ink: #efe0c6;
       }
     }
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      max-width: 760px; margin: 2rem auto; padding: 0 1.2rem;
-      line-height: 1.65; background: var(--bg); color: var(--ink);
+      max-width: 720px; margin: 2.5rem auto; padding: 0 1.25rem;
+      line-height: 1.7; background: var(--bg); color: var(--ink);
     }
     main {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 18px; padding: 1.75rem;
+      border-radius: 16px; padding: 2rem;
     }
-    h1, h2 { color: var(--heading); }
-    a { color: var(--accent); }
+    h1, h2 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--heading);
+    }
+    a { color: var(--accent); text-underline-offset: 3px; }
     .callout {
-      background: var(--callout-bg); border-left: 4px solid var(--callout-border);
-      color: var(--callout-ink); padding: 1rem; border-radius: 10px;
+      background: var(--callout-bg); border-left: 3px solid var(--callout-border);
+      color: var(--callout-ink); padding: 1rem 1.15rem; border-radius: 10px;
     }
   </style>
 </head>
@@ -118,53 +123,58 @@ def _render_deletion_page(
   <title>PillScope Account &amp; Data Deletion</title>
   <style>
     :root {{
-      --bg: #f4f7f7;
+      --bg: #f5f6f3;
       --surface: #ffffff;
-      --form-bg: #edf3f3;
-      --ink: #0f1e22;
-      --heading: #063b3a;
-      --border: #d8e3e4;
+      --form-bg: #eaece7;
+      --ink: #18201d;
+      --heading: #13342c;
+      --border: #d4d9d2;
       --input-bg: #ffffff;
-      --input-border: #9fb4b7;
-      --code-bg: #e2ecec;
-      --danger: #c61d2c;
-      --success-bg: #e6f7ee;
-      --success-ink: #0a4b2e;
-      --success-border: #127a4b;
-      --error-bg: #fdecee;
-      --error-ink: #7a0d18;
-      --error-border: #c61d2c;
+      --input-border: #a5b0a9;
+      --code-bg: #e3e7e1;
+      --danger: #921b24;
+      --success-bg: #e7f0eb;
+      --success-ink: #1a4531;
+      --success-border: #286448;
+      --error-bg: #f8e8e9;
+      --error-ink: #6d131a;
+      --error-border: #9e1f28;
     }}
     @media (prefers-color-scheme: dark) {{
       :root {{
-        --bg: #0c1417;
-        --surface: #142024;
-        --form-bg: #1b2b30;
-        --ink: #ebf4f5;
-        --heading: #b2f5ea;
-        --border: #283d43;
-        --input-bg: #0c1417;
-        --input-border: #3d5860;
-        --code-bg: #22353b;
-        --danger: #b41b29;
-        --success-bg: #0e3524;
-        --success-ink: #a7f3d0;
-        --success-border: #34d399;
-        --error-bg: #3f151a;
-        --error-ink: #fecaca;
-        --error-border: #ef4444;
+        --bg: #131716;
+        --surface: #1b211f;
+        --form-bg: #232b28;
+        --ink: #ecefe9;
+        --heading: #c7ddd5;
+        --border: #303b37;
+        --input-bg: #131716;
+        --input-border: #44534e;
+        --code-bg: #27312e;
+        --danger: #8c1e26;
+        --success-bg: #192c22;
+        --success-ink: #cce3d6;
+        --success-border: #7bb295;
+        --error-bg: #351b1e;
+        --error-ink: #f3cdd0;
+        --error-border: #d9787e;
       }}
     }}
     body {{
       font-family: system-ui, -apple-system, sans-serif;
-      max-width: 760px; margin: 2rem auto; padding: 0 1.2rem;
-      line-height: 1.65; background: var(--bg); color: var(--ink);
+      max-width: 720px; margin: 2.5rem auto; padding: 0 1.25rem;
+      line-height: 1.7; background: var(--bg); color: var(--ink);
     }}
     main {{
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 18px; padding: 1.75rem;
+      border-radius: 16px; padding: 2rem;
     }}
-    h1, h2 {{ color: var(--heading); }}
+    h1, h2 {{
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--heading);
+    }}
     code {{ background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }}
     form {{
       background: var(--form-bg); border: 1px solid var(--border); border-radius: 12px;
