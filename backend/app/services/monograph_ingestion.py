@@ -245,7 +245,9 @@ def _collect_spl_section_texts(section: ET.Element, ns: dict[str, str]) -> list[
         if child_section is None:
             continue
         child_code_el = child_section.find("hl7:code", ns)
-        child_code = (child_code_el.attrib.get("code") or "").strip() if child_code_el is not None else ""
+        child_code = (
+            (child_code_el.attrib.get("code") or "").strip() if child_code_el is not None else ""
+        )
         if child_code in LOINC_TO_SECTION:
             continue
         title_el = child_section.find("hl7:title", ns)
@@ -337,14 +339,10 @@ def parse_dailymed_spl_xml(
 def _score_openfda_candidate(record: dict[str, Any], canonical: str) -> tuple[int, int, int]:
     has_ddi = 1 if record.get("drug_interactions") else 0
     section_count = sum(
-        1
-        for _, _, _, field_names in CLINICAL_SECTIONS
-        if any(record.get(fn) for fn in field_names)
+        1 for _, _, _, field_names in CLINICAL_SECTIONS if any(record.get(fn) for fn in field_names)
     )
     openfda = record.get("openfda") or {}
-    generics = [
-        normalize_canonical_salt(str(g)) for g in (openfda.get("generic_name") or []) if g
-    ]
+    generics = [normalize_canonical_salt(str(g)) for g in (openfda.get("generic_name") or []) if g]
     exact_single = 1 if canonical in generics else 0
     return (has_ddi, exact_single, section_count)
 

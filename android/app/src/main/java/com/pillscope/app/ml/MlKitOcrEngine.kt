@@ -103,16 +103,35 @@ object OnDeviceSaltChipExtractor {
     }
 
     private fun extractSaltFromTokens(tokens: List<String>): String {
-        val filtered = tokens.filter { it !in noiseWords && !it.all { ch -> ch.isDigit() } }
+        val filtered = tokens
+            .filter { it !in noiseWords && !it.all { ch -> ch.isDigit() } }
+            .toMutableList()
         if (filtered.isEmpty()) return ""
+
+        if (filtered.size >= 3) {
+            val lastThree = filtered.takeLast(3).joinToString(" ")
+            saltSynonyms[lastThree]?.let { return it }
+        }
         if (filtered.size >= 2) {
-            val lastThree = if (filtered.size >= 3) filtered.takeLast(3).joinToString(" ") else ""
-            if (lastThree in saltSynonyms) return saltSynonyms.getValue(lastThree)
+            val lastTwo = filtered.takeLast(2).joinToString(" ")
+            saltSynonyms[lastTwo]?.let { return it }
+            if (lastTwo in preservedInorganic) {
+                return normalizeCanonicalSalt(lastTwo)
+            }
+        }
+
+        while (filtered.size > 1 && filtered.last() in counterionSuffixes) {
+            val candidateTwo = if (filtered.size >= 2) filtered.takeLast(2).joinToString(" ") else ""
+            if (candidateTwo in saltSynonyms) return saltSynonyms.getValue(candidateTwo)
+            if (candidateTwo in preservedInorganic) return normalizeCanonicalSalt(candidateTwo)
+            filtered.removeAt(filtered.lastIndex)
+        }
+
+        if (filtered.size >= 2) {
             val lastTwo = filtered.takeLast(2).joinToString(" ")
             if (
                 lastTwo in saltSynonyms ||
                 lastTwo in preservedInorganic ||
-                filtered.last() in counterionSuffixes ||
                 filtered.last() == "acid" ||
                 filtered[filtered.size - 2] in setOf("vitamin", "sodium", "potassium", "calcium", "magnesium", "ferrous", "clavulanic")
             ) {

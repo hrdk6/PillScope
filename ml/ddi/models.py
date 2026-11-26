@@ -81,6 +81,8 @@ class LightGbmDdiModel:
             "subsample": subsample,
             "subsample_freq": 1,
             "colsample_bytree": colsample_bytree,
+            "reg_alpha": 1.0,
+            "reg_lambda": 5.0,
             "random_state": seed,
             "n_jobs": -1,
             "verbose": -1,
@@ -201,9 +203,9 @@ class TorchMlpDdiModel:
         *,
         continuous_start: int,
         hidden_dims: tuple[int, int] = (256, 128),
-        dropout: float = 0.25,
+        dropout: float = 0.40,
         learning_rate: float = 1e-3,
-        weight_decay: float = 1e-2,
+        weight_decay: float = 2e-2,
         epochs: int = 45,
         batch_size: int = 32,
         patience: int = 10,
@@ -259,7 +261,7 @@ class TorchMlpDdiModel:
             dtype=torch.float32,
             device=self._device,
         )
-        criterion = nn.CrossEntropyLoss(weight=weight_tensor)
+        criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.05)
         optimizer = torch.optim.AdamW(
             net.parameters(),
             lr=self._learning_rate,

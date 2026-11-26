@@ -52,6 +52,10 @@ _LEVEL_MAP: dict[str, SeverityLabel] = {
     "none": "NONE",
     "safe": "NONE",
 }
+_PARSE_SEVERITY_RANK: dict[str, int] = {
+    **{str(k): v for k, v in SEVERITY_RANK.items()},
+    "UNKNOWN": -1,
+}
 
 
 @dataclass(slots=True)
@@ -431,8 +435,10 @@ def parse_ddinter_csv_files(
 
                 pair_key = (salt_a, salt_b)
                 existing = merged_pairs.get(pair_key)
-                rank_new = SEVERITY_RANK.get(severity, -1)  # type: ignore[arg-type]
-                rank_old = SEVERITY_RANK.get(existing["severity"], -1) if existing else -2
+                rank_new = _PARSE_SEVERITY_RANK.get(severity, -1)
+                rank_old = (
+                    _PARSE_SEVERITY_RANK.get(str(existing["severity"]), -1) if existing else -2
+                )
                 if existing is None or rank_new > rank_old:
                     merged_pairs[pair_key] = {
                         "salt_a": salt_a,

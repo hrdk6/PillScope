@@ -50,7 +50,7 @@ def _load_smiles_cache_map(cache_db_path: Path | None) -> dict[str, str]:
     if cache_db_path is None or not cache_db_path.exists():
         return {}
     store = SmilesCacheStore(cache_db_path)
-    with store._connect() as conn:  # noqa: SLF001
+    with store._connect() as conn:
         rows = conn.execute(
             "SELECT canonical_name, smiles FROM smiles_cache WHERE smiles IS NOT NULL"
         ).fetchall()

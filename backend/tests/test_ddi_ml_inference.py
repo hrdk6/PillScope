@@ -189,3 +189,33 @@ def test_ml_can_escalate_unknown_pair_without_breaking_duplicate_lock() -> None:
     )
     assert merged_with_dup.overall_risk == "MAJOR"
     assert merged_with_dup.safety_banner_locked is True
+
+    curated_minor = DeterministicRuleAlert(
+        rule_id="ddi_pairs:minor_1",
+        salt_a="pantoprazole",
+        salt_b="warfarin",
+        severity="MINOR",
+        mechanism="Minimal CYP2C19 inhibition.",
+        management="Routine INR monitoring.",
+    )
+    ml_false_major = DdiPrediction(
+        salt_a="pantoprazole",
+        salt_b="warfarin",
+        predicted_severity="MAJOR",
+        probabilities={"NONE": 0.15, "MINOR": 0.25, "MODERATE": 0.40, "MAJOR": 0.20},
+        confidence=0.20,
+        major_probability=0.20,
+        tanimoto_similarity=0.14,
+        model_name="lightgbm",
+        model_version="lightgbm-test",
+    )
+    merged_curated = merge_deterministic_and_ml_interactions(
+        deterministic_alerts=[curated_minor],
+        ml_predictions=[ml_false_major],
+        has_duplicate_salts=False,
+    )
+    assert merged_curated.overall_risk == "MINOR"
+    assert merged_curated.safety_banner_locked is False
+    assert merged_curated.interactions[0].severity == "MINOR"
+    assert merged_curated.interactions[0].source == "hybrid"
+    assert merged_curated.interactions[0].ml_major_probability == pytest.approx(0.20)

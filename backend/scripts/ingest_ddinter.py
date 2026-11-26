@@ -120,14 +120,12 @@ def _parse_ddinter_files_for_db(
 
                 id_a = _pick_field(row, "DDInterID_A", "ddinter_id_a") or None
                 id_b = _pick_field(row, "DDInterID_B", "ddinter_id_b") or None
-                smiles_a = (
-                    canonicalize_smiles(_pick_field(row, "smiles_a", "SMILES_A"))
-                    or smiles_lookup.get(salt_a)
-                )
-                smiles_b = (
-                    canonicalize_smiles(_pick_field(row, "smiles_b", "SMILES_B"))
-                    or smiles_lookup.get(salt_b)
-                )
+                smiles_a = canonicalize_smiles(
+                    _pick_field(row, "smiles_a", "SMILES_A")
+                ) or smiles_lookup.get(salt_a)
+                smiles_b = canonicalize_smiles(
+                    _pick_field(row, "smiles_b", "SMILES_B")
+                ) or smiles_lookup.get(salt_b)
 
                 if salt_a > salt_b:
                     salt_a, salt_b = salt_b, salt_a
@@ -174,7 +172,7 @@ def _load_smiles_lookup(
         lookup.update(load_smiles_seed_csv(smiles_seed_csv))
     if cache_db_path is not None and cache_db_path.exists():
         store = SmilesCacheStore(cache_db_path)
-        with store._connect() as conn:  # noqa: SLF001
+        with store._connect() as conn:
             rows = conn.execute(
                 "SELECT canonical_name, smiles FROM smiles_cache WHERE smiles IS NOT NULL"
             ).fetchall()

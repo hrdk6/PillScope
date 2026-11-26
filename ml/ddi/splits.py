@@ -86,32 +86,35 @@ def scaffold_drug_disjoint_split(
 
     for sc in ordered_scaffolds[3:]:
         sc_size = len(scaffold_to_drugs[sc])
-        best_split = "train"
+        eligible = [s for s in ("train", "val", "test") if split_drug_counts[s] < targets[s]]
+        if not eligible:
+            eligible = [
+                min(("train", "val", "test"), key=lambda s: split_drug_counts[s] / targets[s])
+            ]
+
+        best_split = eligible[0]
         best_score = float("-inf")
 
-        for split_name in ("train", "val", "test"):
+        for split_name in eligible:
             members = split_scaffolds[split_name]
-            internal_gain = sum(scaffold_adj[sc][other] for other in members)
-            major_gain = sum(scaffold_major_adj[sc][other] for other in members)
+            member_count = max(len(members), 1)
+            internal_density = sum(scaffold_adj[sc][other] for other in members) / member_count
+            major_density = sum(scaffold_major_adj[sc][other] for other in members) / member_count
             remaining_ratio = (targets[split_name] - split_drug_counts[split_name]) / targets[
                 split_name
             ]
-            capacity_factor = max(remaining_ratio, -0.5)
-
-            if split_drug_counts[split_name] + sc_size > targets[split_name] * 1.35 and (
-                split_name != "train"
-            ):
-                capacity_penalty = -50.0
-            else:
-                capacity_penalty = 0.0
-
+            overshoot_penalty = (
+                -5.0
+                if (split_drug_counts[split_name] + sc_size) > (targets[split_name] * 1.25)
+                else 0.0
+            )
             major_need_bonus = (
-                3.0 * major_gain if split_major_edges[split_name] == 0 else 1.5 * major_gain
+                3.0 * major_density if split_major_edges[split_name] == 0 else 1.25 * major_density
             )
             score = (
-                (internal_gain + major_need_bonus + 0.5) * (1.0 + max(capacity_factor, 0.0))
-                + (2.5 * capacity_factor)
-                + capacity_penalty
+                (internal_density + major_need_bonus + 0.1) * (1.0 + max(remaining_ratio, 0.0))
+                + (2.0 * remaining_ratio)
+                + overshoot_penalty
             )
             if score > best_score:
                 best_score = score

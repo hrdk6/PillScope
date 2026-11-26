@@ -77,11 +77,16 @@ class Settings(BaseSettings):
         if self.app_env in {"staging", "production"}:
             if self.jwt_secret_key == _DEV_JWT_SECRET or len(self.jwt_secret_key) < 32:
                 raise ValueError(
-                    "JWT_SECRET_KEY must be overridden with >=32 random chars in staging/production."
+                    "JWT_SECRET_KEY must be overridden with >=32 random chars "
+                    "in staging/production."
                 )
-            if self.internal_admin_api_key == _DEV_ADMIN_KEY or len(self.internal_admin_api_key) < 16:
+            if (
+                self.internal_admin_api_key == _DEV_ADMIN_KEY
+                or len(self.internal_admin_api_key) < 16
+            ):
                 raise ValueError(
-                    "INTERNAL_ADMIN_API_KEY must be overridden with a strong key in staging/production."
+                    "INTERNAL_ADMIN_API_KEY must be overridden with a strong key "
+                    "in staging/production."
                 )
         return self
 

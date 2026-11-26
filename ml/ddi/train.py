@@ -144,8 +144,16 @@ def evaluate_predictions(
     )
 
 
-def _selection_score(metrics: ModelMetrics) -> float:
-    return (0.50 * metrics.major_pr_auc) + (0.30 * metrics.major_recall) + (0.20 * metrics.macro_f1)
+def _selection_score(metrics: ModelMetrics, min_recall_target: float = 0.90) -> float:
+    brier_bonus = max(0.0, 1.0 - metrics.brier_major)
+    recall_target_bonus = 0.15 if metrics.major_recall >= min_recall_target else 0.0
+    return (
+        (0.40 * metrics.major_pr_auc)
+        + (0.30 * metrics.major_recall)
+        + (0.20 * metrics.macro_f1)
+        + (0.10 * brier_bonus)
+        + recall_target_bonus
+    )
 
 
 def _load_prepared_dataframe(dataset_path: Path) -> pd.DataFrame:

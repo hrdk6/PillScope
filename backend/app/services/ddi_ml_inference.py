@@ -187,18 +187,13 @@ def merge_deterministic_and_ml_interactions(
             if det.severity == "MAJOR":
                 banner_locked = True
             final_severity: SeverityLabel = det.severity
-            if (
-                ml_pred is not None
-                and SEVERITY_RANK[ml_pred.predicted_severity] > SEVERITY_RANK[det.severity]
-            ):
-                final_severity = ml_pred.predicted_severity
             highest_rank = max(highest_rank, SEVERITY_RANK[final_severity])
             merged.append(
                 MergedInteraction(
                     salt_a=key[0],
                     salt_b=key[1],
                     severity=final_severity,
-                    confidence=1.0 if det.severity == final_severity else ml_pred.confidence,  # type: ignore[union-attr]
+                    confidence=1.0,
                     source="hybrid" if ml_pred is not None else "deterministic_db",
                     mechanism=det.mechanism,
                     management=det.management,

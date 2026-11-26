@@ -21,7 +21,9 @@ def _box_blur(img: NDArray[np.float32], radius: int) -> NDArray[np.float32]:
     vert = (csum[k:] - csum[:-k]) / float(k)
 
     csum2 = np.cumsum(vert, axis=1)
-    csum2 = np.concatenate([np.zeros((csum2.shape[0], 1, csum2.shape[2]), dtype=np.float32), csum2], axis=1)
+    csum2 = np.concatenate(
+        [np.zeros((csum2.shape[0], 1, csum2.shape[2]), dtype=np.float32), csum2], axis=1
+    )
     return ((csum2[:, k:] - csum2[:, :-k]) / float(k)).astype(np.float32)
 
 
@@ -35,11 +37,7 @@ def _compute_ground_truth_signals(img_rgb: NDArray[np.float32]) -> tuple[float, 
     glare_ratio = float(np.mean(glare_mask))
 
     lap = (
-        luma[:-2, 1:-1]
-        + luma[2:, 1:-1]
-        + luma[1:-1, :-2]
-        + luma[1:-1, 2:]
-        - 4.0 * luma[1:-1, 1:-1]
+        luma[:-2, 1:-1] + luma[2:, 1:-1] + luma[1:-1, :-2] + luma[1:-1, 2:] - 4.0 * luma[1:-1, 1:-1]
     )
     variance = float(np.var(lap))
     blur_score = float(variance / (variance + 320.0))
