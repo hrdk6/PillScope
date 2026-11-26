@@ -149,10 +149,10 @@ def chunk_section_text(
     return chunks
 
 
-def _extract_canonical_salt_from_openfda(
+def _extract_canonical_salts_from_openfda(
     record: dict[str, Any],
     fallback_drug_name: str | None = None,
-) -> str:
+) -> list[str]:
     openfda = record.get("openfda") or {}
     generic_names = openfda.get("generic_name") or openfda.get("substance_name") or []
     normalized_fallback = normalize_canonical_salt(fallback_drug_name) if fallback_drug_name else ""
@@ -162,17 +162,26 @@ def _extract_canonical_salt_from_openfda(
         if not isinstance(raw_name, str) or not raw_name.strip():
             continue
         for piece in _OPENFDA_SALT_SPLIT_RE.split(raw_name.strip()):
-            normalized = normalize_canonical_salt(piece)
+            normalized = normalize_canonical_salt(piece)[:160]
             if normalized and normalized not in extracted:
                 extracted.append(normalized)
 
-    if normalized_fallback and normalized_fallback in extracted:
-        return normalized_fallback[:160]
-    if extracted:
-        return extracted[0][:160]
     if normalized_fallback:
-        return normalized_fallback[:160]
-    return ""
+        if normalized_fallback in extracted:
+            return [normalized_fallback[:160]]
+        if extracted:
+            return [extracted[0]]
+        return [normalized_fallback[:160]]
+
+    return extracted
+
+
+def _extract_canonical_salt_from_openfda(
+    record: dict[str, Any],
+    fallback_drug_name: str | None = None,
+) -> str:
+    salts = _extract_canonical_salts_from_openfda(record, fallback_drug_name=fallback_drug_name)
+    return salts[0] if salts else ""
 
 
 def parse_openfda_label_record(
@@ -183,8 +192,8 @@ def parse_openfda_label_record(
     overlap_chars: int = 180,
 ) -> list[PreparedMonographChunk]:
     set_id = str(record.get("set_id") or record.get("id") or "").strip()[:128]
-    canonical_salt = _extract_canonical_salt_from_openfda(record, fallback_drug_name)[:160]
-    if not set_id or not canonical_salt:
+    canonical_salts = _extract_canonical_salts_from_openfda(record, fallback_drug_name)
+    if not set_id or not canonical_salts:
         return []
 
     version = str(record.get("version") or "1")[:32]
@@ -211,30 +220,33 @@ def parse_openfda_label_record(
         if not merged_text:
             continue
 
-        for chunk_idx, chunk_text in enumerate(
-            chunk_section_text(merged_text, max_chars=max_chars, overlap_chars=overlap_chars)
-        ):
-            sha = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
-            prepared.append(
-                PreparedMonographChunk(
-                    set_id=set_id,
-                    document_version=version,
-                    canonical_salt=canonical_salt,
-                    section_key=section_key,
-                    loinc_section_code=loinc_code,
-                    section_title=section_title,
-                    chunk_index=chunk_idx,
-                    content=chunk_text,
-                    content_sha256=sha,
-                    source_url=source_url,
-                    chunk_metadata={
-                        "section_key": section_key,
-                        "source": "openfda",
-                        "brand_names": brand_names,
-                        "effective_time": effective_time,
-                    },
+        section_chunks = chunk_section_text(
+            merged_text, max_chars=max_chars, overlap_chars=overlap_chars
+        )
+        for canonical_salt in canonical_salts:
+            for chunk_idx, chunk_text in enumerate(section_chunks):
+                sha = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
+                prepared.append(
+                    PreparedMonographChunk(
+                        set_id=set_id,
+                        document_version=version,
+                        canonical_salt=canonical_salt,
+                        section_key=section_key,
+                        loinc_section_code=loinc_code,
+                        section_title=section_title,
+                        chunk_index=chunk_idx,
+                        content=chunk_text,
+                        content_sha256=sha,
+                        source_url=source_url,
+                        chunk_metadata={
+                            "section_key": section_key,
+                            "source": "openfda",
+                            "brand_names": brand_names,
+                            "effective_time": effective_time,
+                            "combo_salts": canonical_salts if len(canonical_salts) > 1 else None,
+                        },
+                    )
                 )
-            )
 
     return prepared
 
@@ -424,8 +436,8 @@ async def upsert_monograph_chunks(
     if not chunks:
         return 0
 
-    deduped: dict[tuple[str, str, int], PreparedMonographChunk] = {
-        (c.set_id, c.loinc_section_code, c.chunk_index): c for c in chunks
+    deduped: dict[tuple[str, str, str, int], PreparedMonographChunk] = {
+        (c.set_id, c.canonical_salt, c.loinc_section_code, c.chunk_index): c for c in chunks
     }
     ordered = list(deduped.values())
     total_upserted = 0

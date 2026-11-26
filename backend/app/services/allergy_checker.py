@@ -1,3 +1,4 @@
+import difflib
 import re
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -529,6 +530,29 @@ def _salt_belongs_to_class(canonical_salt: str, class_key: str) -> bool:
     return class_key == "penicillin" and canonical_salt.endswith("cillin")
 
 
+def _fuzzy_resolve_class_key(phrase: str, canonical_allergen: str) -> str | None:
+    direct = DRUG_CLASS_ALIASES.get(phrase) or DRUG_CLASS_ALIASES.get(canonical_allergen)
+    if direct is not None:
+        return direct
+    for probe in (phrase, canonical_allergen):
+        if len(probe) < 5:
+            continue
+        matches = difflib.get_close_matches(probe, DRUG_CLASS_ALIASES.keys(), n=1, cutoff=0.84)
+        if matches:
+            return DRUG_CLASS_ALIASES[matches[0]]
+    return None
+
+
+def _is_fuzzy_salt_match(allergen_salt: str, candidate_salt: str) -> bool:
+    if not allergen_salt or not candidate_salt:
+        return False
+    if allergen_salt == candidate_salt:
+        return True
+    if len(allergen_salt) < 5 or len(candidate_salt) < 5:
+        return False
+    return difflib.SequenceMatcher(None, allergen_salt, candidate_salt).ratio() >= 0.88
+
+
 def detect_allergy_conflicts(
     *,
     candidate_salts: Iterable[str],
@@ -553,7 +577,7 @@ def detect_allergy_conflicts(
         if not phrase:
             continue
         canonical_allergen = normalize_canonical_salt(display_allergen)
-        class_key = DRUG_CLASS_ALIASES.get(phrase) or DRUG_CLASS_ALIASES.get(canonical_allergen)
+        class_key = _fuzzy_resolve_class_key(phrase, canonical_allergen)
         reaction_suffix = f" (documented reaction: {reaction})" if reaction else ""
 
         for salt in resolved_salts:
@@ -561,7 +585,7 @@ def detect_allergy_conflicts(
             if dedupe_key in seen_pairs:
                 continue
 
-            if canonical_allergen and salt == canonical_allergen:
+            if canonical_allergen and _is_fuzzy_salt_match(canonical_allergen, salt):
                 seen_pairs.add(dedupe_key)
                 alerts.append(
                     AllergyAlert(

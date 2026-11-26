@@ -432,6 +432,7 @@ async def sync_openfda_recalls(
         for _ in range(max_pages):
             params: dict[str, str | int] = {
                 "search": search_query,
+                "sort": "report_date:desc",
                 "limit": page_size,
                 "skip": skip,
             }
@@ -441,6 +442,9 @@ async def sync_openfda_recalls(
             response: httpx.Response | None = None
             for attempt in range(max_retries + 1):
                 response = await client.get(settings.openfda_enforcement_url, params=params)
+                if response.status_code == 400 and "sort" in params:
+                    params.pop("sort", None)
+                    response = await client.get(settings.openfda_enforcement_url, params=params)
                 if response.status_code in {429, 502, 503, 504}:
                     if attempt < max_retries:
                         delay = _compute_retry_delay(
@@ -632,6 +636,70 @@ async def match_active_recalls_for_medications(
         )
     )
     return flags_by_med, profile_items
+
+
+async def match_active_recalls_for_salts(
+    session: AsyncSession,
+    *,
+    canonical_salts: Sequence[str],
+    submitted_query: str = "",
+) -> list[MedicationRecallFlag]:
+    salt_set = {s.strip().lower() for s in canonical_salts if s and s.strip()}
+    brand_variants = set(_brand_variants(submitted_query)) if submitted_query else set()
+
+    conditions = []
+    if salt_set:
+        conditions.append(RecallAlert.canonical_salt_keys.overlap(sorted(salt_set)))
+    if brand_variants:
+        conditions.append(RecallAlert.brand_names.overlap(sorted(brand_variants)))
+    if not conditions:
+        return []
+
+    stmt = (
+        select(RecallAlert)
+        .where(
+            RecallAlert.status.in_(sorted(ACTIVE_RECALL_STATUSES)),
+            RecallAlert.classification.in_(sorted(HIGH_PRIORITY_CLASSIFICATIONS)),
+            or_(RecallAlert.termination_date.is_(None), RecallAlert.termination_date == ""),
+            or_(*conditions),
+        )
+        .order_by(RecallAlert.classification.asc(), RecallAlert.report_date.desc())
+        .limit(20)
+    )
+    recalls = list((await session.execute(stmt)).scalars().all())
+
+    flags: list[MedicationRecallFlag] = []
+    for recall in recalls:
+        salt_overlap = sorted(salt_set & set(recall.canonical_salt_keys))
+        brand_overlap = sorted(brand_variants & set(recall.brand_names))
+        if salt_overlap and brand_overlap:
+            basis: RecallMatchBasis = "BRAND_AND_SALT"
+            terms = sorted(set(salt_overlap) | set(brand_overlap))
+        elif salt_overlap:
+            basis = "GENERIC_SALT"
+            terms = salt_overlap
+        elif brand_overlap:
+            basis = "BRAND_NAME"
+            terms = brand_overlap
+        else:
+            continue
+
+        flags.append(
+            MedicationRecallFlag(
+                alert_label="US FDA Recall Alert",
+                recall_id=recall.id,
+                recall_number=recall.recall_number,
+                classification=_as_priority_classification(recall.classification),
+                status=recall.status,
+                recalling_firm=recall.recalling_firm,
+                reason_for_recall=recall.reason_for_recall,
+                report_date=recall.report_date,
+                match_basis=basis,
+                matched_terms=terms,
+                source_url=recall.source_url,
+            )
+        )
+    return flags
 
 
 async def get_profile_recalls(

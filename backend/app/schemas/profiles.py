@@ -37,6 +37,7 @@ class ProfileCreateRequest(BaseModel):
     relationship: str = Field(default="other", min_length=1, max_length=64)
     allergies_json: list[str | AllergyEntry] = Field(
         default_factory=list,
+        max_length=50,
         validation_alias=AliasChoices("allergies_json", "allergies"),
     )
     notes: str | None = Field(default=None, max_length=2000)
@@ -62,6 +63,7 @@ class ProfileUpdateRequest(BaseModel):
     relationship: str | None = Field(default=None, min_length=1, max_length=64)
     allergies_json: list[str | AllergyEntry] | None = Field(
         default=None,
+        max_length=50,
         validation_alias=AliasChoices("allergies_json", "allergies"),
     )
     notes: str | None = Field(default=None, max_length=2000)

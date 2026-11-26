@@ -71,7 +71,8 @@ async def ensure_user_default_profile(
     )
     if fallback is not None:
         fallback.is_default = True
-        await session.flush()
+        await session.commit()
+        await session.refresh(fallback)
         return fallback
 
     user = await session.scalar(select(User).where(User.id == user_id))

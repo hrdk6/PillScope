@@ -6,6 +6,7 @@ import com.pillscope.app.data.remote.dto.DeterministicDdiAlertDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.InteractionItemDto
 import com.pillscope.app.data.remote.dto.LifestyleTriggerDto
+import com.pillscope.app.data.remote.dto.MedicationRecallFlagDto
 import com.pillscope.app.data.remote.dto.MonographCitationDto
 import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.sse.ScanSseEvent
@@ -90,6 +91,8 @@ object ScanAnalysisReducer {
                     duplicateSalts = p.duplicateSalts,
                     allergyAlerts = p.allergyAlerts,
                     deterministicAlerts = p.deterministicAlerts,
+                    activeRecalls = p.activeRecalls.map { it.toProfileRecallItem(p.submittedQuery) }
+                        .ifEmpty { current.activeRecalls },
                     errorMessage = null,
                 )
             }
@@ -166,6 +169,8 @@ object ScanAnalysisReducer {
                     allergyAlerts = p.allergyAlerts.ifEmpty { current.allergyAlerts },
                     deterministicAlerts = p.deterministicAlerts.ifEmpty { current.deterministicAlerts },
                     lifestyleTriggers = p.lifestyleTriggers.ifEmpty { current.lifestyleTriggers },
+                    activeRecalls = p.activeRecalls.map { it.toProfileRecallItem(p.submittedQuery) }
+                        .ifEmpty { current.activeRecalls },
                     interactions = p.interactions,
                     clinicalSummary = p.clinicalSummary,
                     citations = p.citations,
@@ -189,3 +194,22 @@ object ScanAnalysisReducer {
         }
     }
 }
+
+fun MedicationRecallFlagDto.toProfileRecallItem(medicationName: String): ProfileRecallAlertItemDto =
+    ProfileRecallAlertItemDto(
+        alertLabel = alertLabel,
+        jurisdiction = "US_FDA",
+        recallId = recallId,
+        recallNumber = recallNumber,
+        classification = classification,
+        status = status,
+        recallingFirm = recallingFirm,
+        productDescription = medicationName,
+        reasonForRecall = reasonForRecall,
+        reportDate = reportDate,
+        sourceUrl = sourceUrl,
+        matchedMedicationId = "",
+        matchedMedicationName = medicationName,
+        matchBasis = matchBasis,
+        matchedTerms = matchedTerms,
+    )

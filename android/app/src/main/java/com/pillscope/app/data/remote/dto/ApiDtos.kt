@@ -26,6 +26,11 @@ data class RefreshRequestDto(
 )
 
 @Serializable
+data class LogoutRequestDto(
+    @SerialName("refresh_token") val refreshToken: String? = null,
+)
+
+@Serializable
 data class TokenResponseDto(
     @SerialName("access_token") val accessToken: String,
     @SerialName("refresh_token") val refreshToken: String,
@@ -69,7 +74,7 @@ data class AllergyAlertDto(
 data class ProfileCreateRequestDto(
     val name: String,
     val relationship: String = "other",
-    @SerialName("allergies_json") val allergiesJson: List<String> = emptyList(),
+    @SerialName("allergies_json") val allergiesJson: List<JsonElement> = emptyList(),
     val notes: String? = null,
     @SerialName("is_default") val isDefault: Boolean = false,
 )
@@ -78,7 +83,7 @@ data class ProfileCreateRequestDto(
 data class ProfileUpdateRequestDto(
     val name: String? = null,
     val relationship: String? = null,
-    @SerialName("allergies_json") val allergiesJson: List<String>? = null,
+    @SerialName("allergies_json") val allergiesJson: List<JsonElement>? = null,
     val notes: String? = null,
     @SerialName("is_default") val isDefault: Boolean? = null,
 )
@@ -95,18 +100,26 @@ data class ProfileResponseDto(
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = "",
 ) {
-    fun extractedAllergyLabels(): List<String> = allergiesJson.mapNotNull { element ->
+    fun extractedAllergyEntries(): List<AllergyEntryDto> = allergiesJson.mapNotNull { element ->
         when (element) {
-            is JsonPrimitive -> element.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+            is JsonPrimitive -> element.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                AllergyEntryDto(allergen = it)
+            }
             is JsonObject -> {
                 val primary = (element["allergen"] as? JsonPrimitive)?.contentOrNull
                     ?: (element["substance"] as? JsonPrimitive)?.contentOrNull
                     ?: (element["name"] as? JsonPrimitive)?.contentOrNull
-                primary?.trim()?.takeIf { it.isNotEmpty() }
+                val reaction = (element["reaction"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                val severity = (element["severity"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                primary?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    AllergyEntryDto(allergen = it, reaction = reaction, severity = severity)
+                }
             }
             else -> null
         }
     }
+
+    fun extractedAllergyLabels(): List<String> = extractedAllergyEntries().map { it.allergen }
 }
 
 @Serializable
@@ -175,6 +188,7 @@ data class ScheduledDoseItemDto(
     @SerialName("recommended_time") val recommendedTime: String,
     @SerialName("dose_number") val doseNumber: Int = 1,
     @SerialName("total_daily_doses") val totalDailyDoses: Int = 1,
+    @SerialName("frequency_note") val frequencyNote: String? = null,
     val rationale: List<String> = emptyList(),
     @SerialName("separation_notes") val separationNotes: List<String> = emptyList(),
 )
@@ -310,6 +324,9 @@ data class MedicationResponseDto(
     @SerialName("lifestyle_triggers") val lifestyleTriggers: List<LifestyleTriggerDto> = emptyList(),
     @SerialName("has_active_recall") val hasActiveRecall: Boolean = false,
     @SerialName("active_recalls") val activeRecalls: List<MedicationRecallFlagDto> = emptyList(),
+    @SerialName("safety_banner_locked") val safetyBannerLocked: Boolean = false,
+    @SerialName("duplicate_salts") val duplicateSalts: List<DuplicateSaltAlertDto> = emptyList(),
+    @SerialName("allergy_alerts") val allergyAlerts: List<AllergyAlertDto> = emptyList(),
 )
 
 @Serializable
@@ -354,6 +371,7 @@ data class ScanAnalyzeRequestDto(
     @SerialName("submitted_query") val submittedQuery: String,
     @SerialName("confirmed_salts") val confirmedSalts: List<String>? = null,
     @SerialName("raw_ocr_text") val rawOcrText: String? = null,
+    @SerialName("country_code") val countryCode: String? = null,
     @SerialName("edge_quality_metrics") val edgeQualityMetrics: EdgeQualityMetricsDto? = null,
 )
 
@@ -420,6 +438,7 @@ data class DeterministicSafetyEventDto(
     @SerialName("duplicate_salts") val duplicateSalts: List<DuplicateSaltAlertDto> = emptyList(),
     @SerialName("allergy_alerts") val allergyAlerts: List<AllergyAlertDto> = emptyList(),
     @SerialName("deterministic_alerts") val deterministicAlerts: List<DeterministicDdiAlertDto> = emptyList(),
+    @SerialName("active_recalls") val activeRecalls: List<MedicationRecallFlagDto> = emptyList(),
 )
 
 @Serializable
@@ -462,6 +481,7 @@ data class ScanCompleteEventDto(
     @SerialName("duplicate_salts") val duplicateSalts: List<DuplicateSaltAlertDto> = emptyList(),
     @SerialName("allergy_alerts") val allergyAlerts: List<AllergyAlertDto> = emptyList(),
     @SerialName("lifestyle_triggers") val lifestyleTriggers: List<LifestyleTriggerDto> = emptyList(),
+    @SerialName("active_recalls") val activeRecalls: List<MedicationRecallFlagDto> = emptyList(),
     val interactions: List<InteractionItemDto> = emptyList(),
     @SerialName("clinical_summary") val clinicalSummary: ClinicalSummaryDto,
     val citations: List<MonographCitationDto> = emptyList(),
@@ -499,6 +519,7 @@ data class ScanLogResponseDto(
     @SerialName("duplicate_salts") val duplicateSalts: List<DuplicateSaltAlertDto> = emptyList(),
     @SerialName("allergy_alerts") val allergyAlerts: List<AllergyAlertDto> = emptyList(),
     @SerialName("lifestyle_triggers") val lifestyleTriggers: List<LifestyleTriggerDto> = emptyList(),
+    @SerialName("active_recalls") val activeRecalls: List<MedicationRecallFlagDto> = emptyList(),
     val interactions: List<InteractionItemDto> = emptyList(),
     @SerialName("clinical_summary") val clinicalSummary: ClinicalSummaryDto? = null,
     val citations: List<MonographCitationDto> = emptyList(),

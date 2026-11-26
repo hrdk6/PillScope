@@ -23,7 +23,7 @@ class MedicationCreateRequest(BaseModel):
     profile_id: UUID | None = None
     brand_mapping_id: UUID | None = None
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
-    generic_salts: list[SaltComponent] | None = None
+    generic_salts: list[SaltComponent] | None = Field(default=None, max_length=20)
     dosage_schedule: str | None = Field(default=None, max_length=120)
     is_active: bool = True
     started_at: datetime | None = None
@@ -31,6 +31,11 @@ class MedicationCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_fields(self) -> "MedicationCreateRequest":
+        if self.display_name is not None:
+            cleaned = self.display_name.strip()
+            if not cleaned:
+                raise ValueError("display_name cannot be blank.")
+            self.display_name = cleaned
         if self.brand_mapping_id is None and (not self.display_name or not self.generic_salts):
             raise ValueError(
                 "Provide either brand_mapping_id or both display_name and generic_salts."
@@ -44,6 +49,15 @@ class MedicationUpdateRequest(BaseModel):
     is_active: bool | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_optional_display_name(self) -> "MedicationUpdateRequest":
+        if self.display_name is not None:
+            cleaned = self.display_name.strip()
+            if not cleaned:
+                raise ValueError("display_name cannot be blank.")
+            self.display_name = cleaned
+        return self
 
 
 class MedicationResponse(BaseModel):
@@ -65,6 +79,9 @@ class MedicationResponse(BaseModel):
     lifestyle_triggers: list[LifestyleTrigger] = Field(default_factory=list)
     has_active_recall: bool = False
     active_recalls: list[MedicationRecallFlag] = Field(default_factory=list)
+    safety_banner_locked: bool = False
+    duplicate_salts: list[DuplicateSaltAlert] = Field(default_factory=list)
+    allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
 
 
 class MedicationDetailResponse(MedicationResponse):

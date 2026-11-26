@@ -8,8 +8,56 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.db.models import DdiPair, Medication
 from backend.app.schemas.cabinet import DuplicateCheckResponse, DuplicateSaltAlert, RiskLevel
 from backend.app.schemas.safety import DeterministicDdiAlert
-from backend.app.services.allergy_checker import detect_allergy_conflicts
+from backend.app.services.allergy_checker import DRUG_CLASS_MEMBERS, detect_allergy_conflicts
 from backend.app.services.drug_normalizer import canonical_salt_keys
+
+_THERAPEUTIC_DUPLICATION_CLASSES: dict[str, tuple[str, str, str]] = {
+    "nsaid": (
+        "NSAID",
+        "Additive COX inhibition increases risk of GI bleeding, ulceration, and renal injury.",
+        "Avoid taking multiple systemic NSAIDs concurrently unless explicitly directed.",
+    ),
+    "ppi": (
+        "Proton Pump Inhibitor (PPI)",
+        "Duplicate gastric acid suppression offers no added benefit and raises adverse risk.",
+        "Review whether two proton pump inhibitors are intentionally prescribed together.",
+    ),
+    "statin": (
+        "Statin",
+        "Combining two statins significantly raises myopathy and hepatotoxicity risk.",
+        "Verify with prescriber; typically only one statin should be taken at a time.",
+    ),
+    "ace_inhibitor": (
+        "ACE Inhibitor",
+        "Duplicate RAAS blockade raises risk of hypotension, hyperkalemia, and renal injury.",
+        "Consult prescriber immediately before combining two ACE inhibitors.",
+    ),
+    "arb": (
+        "ARB",
+        "Duplicate angiotensin receptor blockade increases hypotension and renal injury risk.",
+        "Consult prescriber immediately before combining two ARBs.",
+    ),
+    "ssri": (
+        "SSRI",
+        "Combining multiple SSRIs increases risk of serotonin syndrome and QT prolongation.",
+        "Verify therapy with prescribing clinician before concurrent use.",
+    ),
+    "benzodiazepine": (
+        "Benzodiazepine",
+        "Additive CNS and respiratory depression, sedation, and fall risk.",
+        "Avoid duplicating benzodiazepines unless closely supervised by a clinician.",
+    ),
+    "opioid": (
+        "Opioid",
+        "Additive CNS and respiratory depression increases risk of overdose.",
+        "Consult prescriber or pharmacist immediately before combining opioid analgesics.",
+    ),
+    "beta_blocker": (
+        "Beta-Blocker",
+        "Additive bradycardia, AV block, and hypotension risk.",
+        "Confirm with prescriber whether duplicate beta-blocker therapy is intended.",
+    ),
+}
 
 _RISK_ORDER: dict[RiskLevel, int] = {"NONE": 0, "MINOR": 1, "MODERATE": 2, "MAJOR": 3}
 _RISK_MAP: dict[str, RiskLevel] = {
@@ -92,10 +140,12 @@ async def detect_deterministic_ddi_alerts(
     rows = list((await session.execute(stmt)).scalars().all())
 
     alerts: list[DeterministicDdiAlert] = []
+    covered_pairs: set[tuple[str, str]] = set()
     for row in rows:
         sev = _RISK_MAP.get(row.severity)
         if sev is None:
             continue
+        covered_pairs.add((row.salt_a, row.salt_b))
         alerts.append(
             DeterministicDdiAlert(
                 rule_id=f"ddi_pairs:{row.id}",
@@ -108,6 +158,29 @@ async def detect_deterministic_ddi_alerts(
                 sources=list(row.sources),
             )
         )
+
+    for pair in sorted(ordered_pairs):
+        if pair in covered_pairs:
+            continue
+        salt_a, salt_b = pair
+        for class_key, (label, effect, management) in _THERAPEUTIC_DUPLICATION_CLASSES.items():
+            members = DRUG_CLASS_MEMBERS.get(class_key, frozenset())
+            if salt_a in members and salt_b in members:
+                alerts.append(
+                    DeterministicDdiAlert(
+                        rule_id=f"therapeutic_class:{class_key}",
+                        salt_a=salt_a,
+                        salt_b=salt_b,
+                        severity="MODERATE",
+                        mechanism=(
+                            f"Same-class therapeutic duplication ({label}): {salt_a} and {salt_b}."
+                        ),
+                        clinical_effect=effect,
+                        management=management,
+                        sources=["pillscope_therapeutic_class"],
+                    )
+                )
+                break
 
     alerts.sort(key=lambda item: (-_RISK_ORDER[item.severity], item.salt_a, item.salt_b))
     return alerts

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,9 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WbTwilight
@@ -69,6 +70,7 @@ fun ScheduleScreen(
 ) {
     val schedule by viewModel.schedule.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val takenKeys by viewModel.takenDoseKeys.collectAsStateWithLifecycle()
     val slots = schedule?.slots?.takeIf { it.isNotEmpty() } ?: DefaultEmptySlots
 
     Column(
@@ -114,6 +116,37 @@ fun ScheduleScreen(
             }
         }
 
+        uiState.statusNotice?.let { notice ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = if (uiState.noticeIsError) {
+                    PillScopeColors.ModerateAmberSurface
+                } else {
+                    PillScopeColors.ClinicalTealContainer
+                },
+                border = BorderStroke(
+                    1.dp,
+                    if (uiState.noticeIsError) {
+                        PillScopeColors.ModerateAmber.copy(alpha = 0.5f)
+                    } else {
+                        PillScopeColors.ClinicalTeal.copy(alpha = 0.3f)
+                    },
+                ),
+            ) {
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (uiState.noticeIsError) {
+                        PillScopeColors.ModerateAmberDark
+                    } else {
+                        PillScopeColors.ClinicalTealDeep
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+        }
+
         val clashes = schedule?.unresolvableClashes.orEmpty()
         if (clashes.isNotEmpty()) {
             UnresolvableClashesCallout(clashes = clashes)
@@ -125,6 +158,13 @@ fun ScheduleScreen(
                 TimelineSlotRow(
                     slotGroup = slotGroup,
                     appliedSeparations = appliedSeparations,
+                    takenKeys = takenKeys,
+                    doseKeyFor = { dose ->
+                        viewModel.doseKey(dose.medicationId, slotGroup.slot, dose.doseNumber)
+                    },
+                    onToggleTaken = { dose ->
+                        viewModel.toggleDoseTaken(dose.medicationId, slotGroup.slot, dose.doseNumber)
+                    },
                     isLast = index == slots.lastIndex,
                 )
             }
@@ -194,6 +234,9 @@ private fun UnresolvableClashesCallout(
 private fun TimelineSlotRow(
     slotGroup: ScheduleSlotGroupDto,
     appliedSeparations: List<AppliedSeparationConstraintDto>,
+    takenKeys: Set<String>,
+    doseKeyFor: (ScheduledDoseItemDto) -> String,
+    onToggleTaken: (ScheduledDoseItemDto) -> Unit,
     isLast: Boolean,
 ) {
     val displayTitle = formatSlotTitle(slotGroup.slot)
@@ -266,11 +309,14 @@ private fun TimelineSlotRow(
                 }
             } else {
                 slotGroup.medications.forEach { dose ->
+                    val isTaken = doseKeyFor(dose) in takenKeys
                     ScheduledDoseCard(
                         dose = dose,
                         appliedSeparations = appliedSeparations.filter {
                             it.medicationAId == dose.medicationId || it.medicationBId == dose.medicationId
                         },
+                        isTaken = isTaken,
+                        onToggleTaken = { onToggleTaken(dose) },
                     )
                 }
             }
@@ -283,12 +329,23 @@ private fun TimelineSlotRow(
 private fun ScheduledDoseCard(
     dose: ScheduledDoseItemDto,
     appliedSeparations: List<AppliedSeparationConstraintDto>,
+    isTaken: Boolean,
+    onToggleTaken: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
-        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isTaken) {
+                PillScopeColors.SafeEmeraldSurface.copy(alpha = 0.55f)
+            } else {
+                PillScopeColors.CardSurface
+            },
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isTaken) PillScopeColors.SafeEmerald.copy(alpha = 0.5f) else PillScopeColors.SlateBorder,
+        ),
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -305,17 +362,53 @@ private fun ScheduledDoseCard(
                     color = PillScopeColors.InkPrimary,
                     modifier = Modifier.weight(1f),
                 )
-                if (dose.totalDailyDoses > 1) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (dose.totalDailyDoses > 1) {
+                        Surface(
+                            shape = CircleShape,
+                            color = PillScopeColors.SurfaceTint,
+                        ) {
+                            Text(
+                                text = "Dose ${dose.doseNumber}/${dose.totalDailyDoses}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PillScopeColors.InkSecondary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
                     Surface(
+                        onClick = onToggleTaken,
                         shape = CircleShape,
-                        color = PillScopeColors.SurfaceTint,
+                        color = if (isTaken) {
+                            PillScopeColors.SafeEmerald
+                        } else {
+                            PillScopeColors.SurfaceTint
+                        },
                     ) {
-                        Text(
-                            text = "Dose ${dose.doseNumber}/${dose.totalDailyDoses}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = PillScopeColors.InkSecondary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (isTaken) {
+                                    Icons.Default.CheckCircle
+                                } else {
+                                    Icons.Default.RadioButtonUnchecked
+                                },
+                                contentDescription = if (isTaken) "Undo taken" else "Mark taken",
+                                tint = if (isTaken) Color.White else PillScopeColors.InkSecondary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Text(
+                                text = if (isTaken) "Taken" else "Take",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isTaken) Color.White else PillScopeColors.InkSecondary,
+                            )
+                        }
                     }
                 }
             }
@@ -325,6 +418,20 @@ private fun ScheduledDoseCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = PillScopeColors.ClinicalTeal,
             )
+
+            dose.frequencyNote?.takeIf { it.isNotBlank() }?.let { note ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = PillScopeColors.ModerateAmberSurface,
+                ) {
+                    Text(
+                        text = note,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = PillScopeColors.ModerateAmberDark,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
 
             if (appliedSeparations.isNotEmpty()) {
                 FlowRow(

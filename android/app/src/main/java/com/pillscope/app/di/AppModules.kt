@@ -12,8 +12,10 @@ import com.pillscope.app.data.local.dao.RecallAlertDao
 import com.pillscope.app.data.local.dao.ScanReportDao
 import com.pillscope.app.data.remote.AuthTokenProvider
 import com.pillscope.app.data.remote.BearerAuthInterceptor
+import com.pillscope.app.data.remote.EncryptedAuthTokenStore
 import com.pillscope.app.data.remote.PillScopeApi
-import com.pillscope.app.data.remote.SharedPrefsAuthTokenStore
+import com.pillscope.app.data.remote.SessionEventBus
+import com.pillscope.app.data.remote.TokenRefreshAuthenticator
 import com.pillscope.app.data.remote.sse.OkHttpScanSseClient
 import com.pillscope.app.data.remote.sse.ScanSseClient
 import com.pillscope.app.data.remote.sse.ScanSseParser
@@ -43,11 +45,15 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideAuthTokenProvider(@ApplicationContext context: Context): AuthTokenProvider =
-        SharedPrefsAuthTokenStore(context)
+        EncryptedAuthTokenStore(context)
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(tokenProvider: AuthTokenProvider): OkHttpClient {
+    fun provideOkHttpClient(
+        tokenProvider: AuthTokenProvider,
+        json: Json,
+        sessionEventBus: SessionEventBus,
+    ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BASIC
@@ -55,8 +61,15 @@ object NetworkModule {
                 HttpLoggingInterceptor.Level.NONE
             }
         }
+        val authenticator = TokenRefreshAuthenticator(
+            tokenProvider = tokenProvider,
+            baseUrl = BuildConfig.API_BASE_URL,
+            json = json,
+            sessionEventBus = sessionEventBus,
+        )
         return OkHttpClient.Builder()
             .addInterceptor(BearerAuthInterceptor(tokenProvider))
+            .authenticator(authenticator)
             .addInterceptor(logging)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -108,7 +121,10 @@ object DatabaseModule {
             context,
             PillScopeDatabase::class.java,
             "pillscope_offline.db",
-        ).addMigrations(PillScopeDatabase.MIGRATION_1_2).build()
+        ).addMigrations(
+            PillScopeDatabase.MIGRATION_1_2,
+            PillScopeDatabase.MIGRATION_2_3,
+        ).build()
 
     @Provides
     fun provideProfileDao(db: PillScopeDatabase): ProfileDao = db.profileDao()

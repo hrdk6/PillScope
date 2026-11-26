@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import auth, cabinet, drugs, health, internal, profiles, scans
+from backend.app.api import auth, cabinet, drugs, health, internal, legal, profiles, scans
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import configure_logging
+from backend.app.core.rate_limit import RateLimitMiddleware
 from backend.app.core.telemetry import OpenTelemetryMiddleware
 from backend.app.db.session import dispose_engine
 from eval.tracing.otel import configure_telemetry
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.add_middleware(OpenTelemetryMiddleware)
+    app.add_middleware(RateLimitMiddleware, settings=resolved_settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=resolved_settings.cors_origins,
@@ -49,12 +51,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(legal.router)
     app.include_router(auth.router)
     app.include_router(profiles.router)
     app.include_router(drugs.router)
     app.include_router(cabinet.router)
     app.include_router(scans.router)
-    app.include_router(internal.router)
+    if resolved_settings.enable_internal_routes:
+        app.include_router(internal.router)
     return app
 
 

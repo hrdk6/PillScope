@@ -27,8 +27,8 @@ import com.pillscope.app.data.local.entity.ProfileEntity
         CachedDoseScheduleEntity::class,
         CachedRecallAlertEntity::class,
     ],
-    version = 2,
-    exportSchema = false,
+    version = 3,
+    exportSchema = true,
 )
 abstract class PillScopeDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
@@ -134,6 +134,17 @@ abstract class PillScopeDatabase : RoomDatabase() {
                         updated_at_epoch_ms INTEGER NOT NULL
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE profiles ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'SYNCED'",
+                )
+                db.execSQL(
+                    "ALTER TABLE cached_scan_reports ADD COLUMN active_recalls_json TEXT NOT NULL DEFAULT '[]'",
                 )
             }
         }

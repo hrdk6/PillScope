@@ -6,6 +6,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEV_ADMIN_KEY = "dev-internal-admin-key"
 _DEV_JWT_SECRET = "pillscope-dev-secret-key-change-in-production-32bytes"
+_PLACEHOLDER_MARKERS: tuple[str, ...] = (
+    "replace-with",
+    "changeme",
+    "pillscope_dev_password",
+    "dev-internal-admin-key",
+    "pillscope-dev-secret",
+)
 
 
 class Settings(BaseSettings):
@@ -22,6 +29,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
     internal_admin_api_key: str = _DEV_ADMIN_KEY
+    enable_internal_routes: bool = True
+    allowed_ingest_dir: str = "data"
+    rate_limit_enabled: bool | None = None
+    rate_limit_auth_per_minute: int = 20
+    rate_limit_scan_per_minute: int = 30
+    rate_limit_internal_per_minute: int = 10
+    privacy_policy_url: str = "https://api.pillscope.app/privacy"
+    account_deletion_url: str = "https://api.pillscope.app/account-deletion"
 
     database_url: str = (
         "postgresql+asyncpg://pillscope:pillscope_dev_password@localhost:5432/pillscope"
@@ -76,20 +91,41 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
         if self.app_env in {"staging", "production"}:
-            if self.jwt_secret_key == _DEV_JWT_SECRET or len(self.jwt_secret_key) < 32:
+            jwt_lower = self.jwt_secret_key.lower()
+            if (
+                self.jwt_secret_key == _DEV_JWT_SECRET
+                or len(self.jwt_secret_key) < 32
+                or any(marker in jwt_lower for marker in _PLACEHOLDER_MARKERS)
+            ):
                 raise ValueError(
-                    "JWT_SECRET_KEY must be overridden with >=32 random chars "
+                    "JWT_SECRET_KEY must be overridden with >=32 random non-placeholder chars "
                     "in staging/production."
                 )
+            admin_lower = self.internal_admin_api_key.lower()
             if (
                 self.internal_admin_api_key == _DEV_ADMIN_KEY
                 or len(self.internal_admin_api_key) < 16
+                or any(marker in admin_lower for marker in _PLACEHOLDER_MARKERS)
             ):
                 raise ValueError(
-                    "INTERNAL_ADMIN_API_KEY must be overridden with a strong key "
+                    "INTERNAL_ADMIN_API_KEY must be overridden with a strong non-placeholder key "
                     "in staging/production."
                 )
+            db_lower = self.database_url.lower()
+            if any(marker in db_lower for marker in _PLACEHOLDER_MARKERS):
+                raise ValueError(
+                    "DATABASE_URL must not contain development/placeholder credentials "
+                    "in staging/production."
+                )
+            if self.app_env == "production" and "@" not in self.redis_url:
+                raise ValueError("REDIS_URL must include authentication credentials in production.")
         return self
+
+    @property
+    def effective_rate_limit_enabled(self) -> bool:
+        if self.rate_limit_enabled is not None:
+            return self.rate_limit_enabled
+        return self.app_env != "test"
 
 
 @lru_cache

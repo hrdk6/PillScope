@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 enum class ScanMode(val persistToServer: Boolean) {
@@ -38,6 +39,7 @@ data class ScanUiState(
     val resolvedCandidates: List<BrandCandidateDto> = emptyList(),
     val isResolving: Boolean = false,
     val isCameraFrozen: Boolean = false,
+    val resolveError: String? = null,
 )
 
 @HiltViewModel
@@ -50,6 +52,8 @@ class ScanViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
+    val forceNextOcr: AtomicBoolean = AtomicBoolean(false)
+
     private var resolveJob: Job? = null
     private var lastResolvedText: String = ""
 
@@ -58,28 +62,80 @@ class ScanViewModel @Inject constructor(
     }
 
     fun onManualQueryChange(query: String) {
-        _uiState.update { it.copy(manualQuery = query) }
+        val clearedOcr = query.isNotBlank()
+        if (clearedOcr) {
+            lastResolvedText = ""
+        }
+        _uiState.update { state ->
+            state.copy(
+                manualQuery = query,
+                rawOcrText = if (clearedOcr) "" else state.rawOcrText,
+                localSaltChips = if (clearedOcr) emptyList() else state.localSaltChips,
+                ocrTextBlocks = if (clearedOcr) emptyList() else state.ocrTextBlocks,
+                resolveError = null,
+            )
+        }
         if (query.trim().length >= 3) {
             triggerDebouncedResolve(query = query.trim(), rawOcrText = null)
         } else {
+            resolveJob?.cancel()
             _uiState.update { it.copy(resolvedCandidates = emptyList(), isResolving = false) }
         }
     }
 
+    fun clearScanState() {
+        resolveJob?.cancel()
+        lastResolvedText = ""
+        _uiState.update { state ->
+            state.copy(
+                manualQuery = "",
+                rawOcrText = "",
+                localSaltChips = emptyList(),
+                ocrTextBlocks = emptyList(),
+                resolvedCandidates = emptyList(),
+                isResolving = false,
+                resolveError = null,
+            )
+        }
+    }
+
+    fun removeSaltChip(canonicalSalt: String) {
+        _uiState.update { state ->
+            state.copy(
+                localSaltChips = state.localSaltChips.filterNot {
+                    it.canonicalSalt.equals(canonicalSalt, ignoreCase = true)
+                },
+            )
+        }
+    }
+
+    fun requestForcedOcrCapture() {
+        forceNextOcr.set(true)
+        _uiState.update { it.copy(isCameraFrozen = false, resolveError = null) }
+    }
+
     fun onCameraPipelineResult(result: CameraPipelineResult) {
         if (_uiState.value.isCameraFrozen) return
+        // Do not overwrite an active manual search with background camera frames.
+        val hasManualInput = _uiState.value.manualQuery.isNotBlank()
         _uiState.update { state ->
             state.copy(
                 latestQuality = result.quality,
                 ocrTextBlocks = if (result.quality.isAcceptable) result.ocrTextBlocks else emptyList(),
-                rawOcrText = if (result.rawOcrText.isNotBlank()) result.rawOcrText else state.rawOcrText,
-                localSaltChips = if (result.localSaltChips.isNotEmpty()) {
+                rawOcrText = if (!hasManualInput && result.rawOcrText.isNotBlank()) {
+                    result.rawOcrText
+                } else {
+                    state.rawOcrText
+                },
+                localSaltChips = if (!hasManualInput && result.localSaltChips.isNotEmpty()) {
                     result.localSaltChips
                 } else {
                     state.localSaltChips
                 },
             )
         }
+
+        if (hasManualInput) return
 
         val queryGuess = result.primaryBrandGuess.ifBlank {
             result.localSaltChips.joinToString(" ") { it.canonicalSalt }
@@ -110,8 +166,8 @@ class ScanViewModel @Inject constructor(
             inputMode = if (isCamera) "CAMERA_OCR" else "MANUAL_TEXT",
             submittedQuery = candidate.brandName,
             confirmedSalts = candidate.canonicalSaltKeys,
-            rawOcrText = state.rawOcrText.takeIf { it.isNotBlank() },
-            edgeQualityMetrics = state.latestQuality?.toMetricsDto(),
+            rawOcrText = if (isCamera) state.rawOcrText.takeIf { it.isNotBlank() } else null,
+            edgeQualityMetrics = if (isCamera) state.latestQuality?.toMetricsDto() else null,
         )
     }
 
@@ -163,12 +219,18 @@ class ScanViewModel @Inject constructor(
         resolveJob?.cancel()
         resolveJob = viewModelScope.launch {
             delay(280L)
-            _uiState.update { it.copy(isResolving = true) }
-            val candidates = scanRepository.resolveDrugCandidates(
+            _uiState.update { it.copy(isResolving = true, resolveError = null) }
+            val outcome = scanRepository.resolveDrugCandidatesDetailed(
                 query = query,
                 rawOcrText = rawOcrText,
             )
-            _uiState.update { it.copy(resolvedCandidates = candidates, isResolving = false) }
+            _uiState.update {
+                it.copy(
+                    resolvedCandidates = outcome.candidates,
+                    isResolving = false,
+                    resolveError = outcome.error?.userMessage,
+                )
+            }
         }
     }
 }

@@ -5,14 +5,16 @@ import com.pillscope.app.data.remote.dto.MonographCitationDto
 import com.pillscope.app.data.remote.dto.UnresolvableScheduleClashDto
 import com.pillscope.app.data.repository.CabinetMedication
 import kotlin.math.PI
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
 enum class GraphEdgeSeverity(val rank: Int) {
     SAFE(0),
-    MODERATE(1),
-    MAJOR(2),
+    MINOR(1),
+    MODERATE(2),
+    MAJOR(3),
 }
 
 data class GraphNode(
@@ -41,7 +43,7 @@ data class GraphEdge(
     val citation: MonographCitationDto?,
 ) {
     val isInteractive: Boolean
-        get() = severity == GraphEdgeSeverity.MAJOR || severity == GraphEdgeSeverity.MODERATE
+        get() = severity != GraphEdgeSeverity.SAFE
 }
 
 data class CabinetGraphState(
@@ -98,17 +100,34 @@ data class CabinetGraphState(
             val activeMeds = medications.filter { it.isActive }
             if (activeMeds.isEmpty()) return CabinetGraphState()
 
+            val outerCount = if (activeMeds.size >= 6) {
+                ceil(activeMeds.size * 0.65).toInt().coerceAtLeast(4)
+            } else {
+                activeMeds.size
+            }
+            val innerCount = (activeMeds.size - outerCount).coerceAtLeast(0)
+
             val nodes = activeMeds.mapIndexed { index, med ->
                 val savedPos = existingPositions[med.id]
-                val (nx, ny) = if (savedPos != null) {
-                    savedPos
-                } else if (activeMeds.size == 1) {
-                    0.5f to 0.5f
-                } else {
-                    val angle = (-PI / 2.0) + (2.0 * PI * index.toDouble() / activeMeds.size.toDouble())
-                    val rx = 0.33f
-                    val ry = 0.33f
-                    (0.5f + (cos(angle) * rx).toFloat()) to (0.5f + (sin(angle) * ry).toFloat())
+                val (nx, ny) = when {
+                    savedPos != null -> savedPos
+                    activeMeds.size == 1 -> 0.5f to 0.5f
+                    activeMeds.size < 6 -> {
+                        val angle = (-PI / 2.0) + (2.0 * PI * index.toDouble() / activeMeds.size.toDouble())
+                        (0.5f + (cos(angle) * 0.34f).toFloat()) to (0.5f + (sin(angle) * 0.33f).toFloat())
+                    }
+                    index < outerCount -> {
+                        val angle = (-PI / 2.0) + (2.0 * PI * index.toDouble() / outerCount.toDouble())
+                        (0.5f + (cos(angle) * 0.37f).toFloat()) to (0.5f + (sin(angle) * 0.36f).toFloat())
+                    }
+                    innerCount == 1 -> 0.5f to 0.5f
+                    else -> {
+                        val innerIndex = index - outerCount
+                        val phaseOffset = PI / innerCount.toDouble()
+                        val angle = (-PI / 2.0) + phaseOffset +
+                            (2.0 * PI * innerIndex.toDouble() / innerCount.toDouble())
+                        (0.5f + (cos(angle) * 0.17f).toFloat()) to (0.5f + (sin(angle) * 0.17f).toFloat())
+                    }
                 }
                 GraphNode(
                     medicationId = med.id,
@@ -116,8 +135,8 @@ data class CabinetGraphState(
                     canonicalSaltKeys = med.canonicalSaltKeys,
                     hasActiveRecall = med.hasActiveRecall,
                     recallCount = med.activeRecalls.size,
-                    normalizedX = nx.coerceIn(0.14f, 0.86f),
-                    normalizedY = ny.coerceIn(0.14f, 0.86f),
+                    normalizedX = nx.coerceIn(0.12f, 0.88f),
+                    normalizedY = ny.coerceIn(0.12f, 0.88f),
                 )
             }
 
@@ -324,6 +343,7 @@ data class CabinetGraphState(
         private fun toEdgeSeverity(raw: String): GraphEdgeSeverity = when (raw.trim().uppercase()) {
             "MAJOR" -> GraphEdgeSeverity.MAJOR
             "MODERATE" -> GraphEdgeSeverity.MODERATE
+            "MINOR" -> GraphEdgeSeverity.MINOR
             else -> GraphEdgeSeverity.SAFE
         }
     }

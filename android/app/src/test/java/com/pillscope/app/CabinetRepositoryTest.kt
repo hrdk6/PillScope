@@ -98,6 +98,12 @@ class InMemoryMedicationDao : MedicationDao {
             !(it.profileId == profileId && it.syncStatus == SyncStatus.SYNCED)
         }
     }
+
+    override suspend fun reassignProfileId(fromProfileId: String, toProfileId: String) {
+        store.value = store.value.mapValues { (_, entity) ->
+            if (entity.profileId == fromProfileId) entity.copy(profileId = toProfileId) else entity
+        }
+    }
 }
 
 class CabinetRepositoryTest {

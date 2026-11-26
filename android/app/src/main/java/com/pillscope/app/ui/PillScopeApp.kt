@@ -1,24 +1,32 @@
 package com.pillscope.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,8 +40,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.pillscope.app.data.remote.dto.UserResponseDto
+import com.pillscope.app.data.repository.AuthSessionState
 import com.pillscope.app.ui.analysis.AnalysisViewModel
 import com.pillscope.app.ui.analysis.ProgressiveAnalysisScreen
+import com.pillscope.app.ui.auth.AuthScreen
+import com.pillscope.app.ui.auth.AuthViewModel
+import com.pillscope.app.ui.auth.OnboardingConsentScreen
 import com.pillscope.app.ui.cabinet.CabinetScreen
 import com.pillscope.app.ui.cabinet.CabinetViewModel
 import com.pillscope.app.ui.profiles.ActiveProfilePill
@@ -52,9 +65,67 @@ private object Routes {
     const val SCHEDULE = "schedule"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PillScopeApp() {
+    val authViewModel: AuthViewModel = hiltViewModel()
+    val sessionState by authViewModel.sessionState.collectAsStateWithLifecycle()
+
+    when (val session = sessionState) {
+        AuthSessionState.Loading -> {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = PillScopeColors.SlateSurface,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        LoadingIndicator(
+                            modifier = Modifier.size(44.dp),
+                            color = PillScopeColors.ClinicalTeal,
+                        )
+                        Text(
+                            text = "Loading PillScope…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PillScopeColors.InkSecondary,
+                        )
+                    }
+                }
+            }
+        }
+
+        AuthSessionState.NeedsConsent -> {
+            OnboardingConsentScreen(
+                onAccept = authViewModel::acceptOnboardingConsent,
+            )
+        }
+
+        is AuthSessionState.Unauthenticated -> {
+            AuthScreen(
+                viewModel = authViewModel,
+                sessionNotice = session.notice,
+            )
+        }
+
+        is AuthSessionState.Authenticated -> {
+            AuthenticatedPillScopeShell(
+                user = session.user,
+                offlineResumed = session.offlineResumed,
+                authViewModel = authViewModel,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AuthenticatedPillScopeShell(
+    user: UserResponseDto,
+    offlineResumed: Boolean,
+    authViewModel: AuthViewModel,
+) {
     val navController = rememberNavController()
     val profileViewModel: ProfileViewModel = hiltViewModel()
     val scanViewModel: ScanViewModel = hiltViewModel()
@@ -64,7 +135,14 @@ fun PillScopeApp() {
 
     val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
+    val profileUiState by profileViewModel.uiState.collectAsStateWithLifecycle()
+    val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
     var showProfileSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(user.id) {
+        profileViewModel.refreshProfiles()
+        cabinetViewModel.syncCabinet()
+    }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: Routes.SCAN
@@ -162,7 +240,15 @@ fun PillScopeApp() {
                 )
             }
             composable(Routes.ANALYSIS) {
-                ProgressiveAnalysisScreen(viewModel = analysisViewModel)
+                ProgressiveAnalysisScreen(
+                    viewModel = analysisViewModel,
+                    onAddToCabinet = { displayName, salts ->
+                        cabinetViewModel.addMedicationFromScan(
+                            displayName = displayName,
+                            canonicalSalts = salts,
+                        )
+                    },
+                )
             }
             composable(Routes.CABINET) {
                 CabinetScreen(viewModel = cabinetViewModel)
@@ -177,6 +263,12 @@ fun PillScopeApp() {
         ProfileSwitcherSheet(
             profiles = profiles,
             activeProfile = activeProfile,
+            userEmail = user.email,
+            offlineSession = offlineResumed,
+            statusMessage = profileUiState.statusMessage,
+            errorMessage = profileUiState.errorMessage,
+            accountActionError = authUiState.accountActionError,
+            isDeletingAccount = authUiState.isDeletingAccount,
             onSelectProfile = { id ->
                 profileViewModel.selectProfile(id)
                 showProfileSheet = false
@@ -184,11 +276,30 @@ fun PillScopeApp() {
             onCreateProfile = { name, relationship, allergies ->
                 profileViewModel.createProfile(name, relationship, allergies)
             },
+            onEditProfile = { profileId, name, relationship, setAsDefault ->
+                profileViewModel.editProfile(profileId, name, relationship, setAsDefault)
+            },
             onSaveAllergies = { profileId, allergies ->
                 profileViewModel.saveAllergies(profileId, allergies)
                 showProfileSheet = false
             },
-            onDismiss = { showProfileSheet = false },
+            onDeleteProfile = { profileId ->
+                profileViewModel.deleteProfile(profileId)
+            },
+            onSignOut = {
+                showProfileSheet = false
+                authViewModel.signOut()
+            },
+            onDeleteAccount = {
+                authViewModel.deleteAccount {
+                    showProfileSheet = false
+                }
+            },
+            onDismiss = {
+                profileViewModel.clearMessages()
+                authViewModel.clearError()
+                showProfileSheet = false
+            },
         )
     }
 }

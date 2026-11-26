@@ -24,6 +24,7 @@ data class ProfileEntity(
     @ColumnInfo(name = "allergies_json") val allergiesJson: String = "[]",
     val notes: String? = null,
     @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
+    @ColumnInfo(name = "sync_status") val syncStatus: String = SyncStatus.SYNCED,
     @ColumnInfo(name = "updated_at_epoch_ms") val updatedAtEpochMs: Long,
 )
 
@@ -56,6 +57,7 @@ data class CachedScanReportEntity(
     @ColumnInfo(name = "duplicate_salts_json") val duplicateSaltsJson: String,
     @ColumnInfo(name = "allergy_alerts_json") val allergyAlertsJson: String = "[]",
     @ColumnInfo(name = "lifestyle_triggers_json") val lifestyleTriggersJson: String = "[]",
+    @ColumnInfo(name = "active_recalls_json") val activeRecallsJson: String = "[]",
     @ColumnInfo(name = "deterministic_alerts_json") val deterministicAlertsJson: String,
     @ColumnInfo(name = "interactions_json") val interactionsJson: String,
     @ColumnInfo(name = "clinical_summary_json") val clinicalSummaryJson: String,

@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
 import httpx
@@ -84,16 +84,23 @@ def compute_murcko_scaffold(canonical_smiles: str) -> str:
 
 
 class SmilesCacheStore:
+    _initialized_paths: ClassVar[set[Path]] = set()
+
     def __init__(self, db_path: Path) -> None:
-        self._db_path = db_path
+        self._db_path = db_path.resolve()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_schema()
+        if self._db_path not in self._initialized_paths:
+            self._init_schema()
+            self._initialized_paths.add(self._db_path)
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._db_path)
+        conn = sqlite3.connect(self._db_path, timeout=5.0)
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS smiles_cache (

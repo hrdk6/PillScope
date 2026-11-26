@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Clinical scope outer ring -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#5EEAD4"
+        android:strokeWidth="4.5"
+        android:pathData="M54,26 A28,28 0 1,1 53.99,26 Z" />
+    <!-- Capsule body (tilted 45 deg, two-tone) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M41.5,54.5 L53.5,42.5 C57.4,38.6 63.7,38.6 67.6,42.5 C71.5,46.4 71.5,52.7 67.6,56.6 L55.6,68.6 Z" />
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M41.5,54.5 L55.6,68.6 C51.7,72.5 45.4,72.5 41.5,68.6 C37.6,64.7 37.6,58.4 41.5,54.5 Z" />
+    <!-- Precision crosshair ticks -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M54,20 L54,26 M54,82 L54,88 M20,54 L26,54 M82,54 L88,54" />
+</vector>

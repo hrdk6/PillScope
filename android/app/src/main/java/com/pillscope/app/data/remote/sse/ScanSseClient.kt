@@ -84,7 +84,7 @@ class ScanSseParser(
                     payload = json.decodeFromString<ScanCompleteEventDto>(rawData),
                 )
                 "error" -> ScanSseEvent.StreamError(
-                    message = rawData,
+                    message = extractSseErrorMessage(rawData),
                     recoverable = true,
                 )
                 else -> null
@@ -95,6 +95,15 @@ class ScanSseParser(
                 recoverable = true,
             )
         }
+    }
+
+    private fun extractSseErrorMessage(rawData: String): String {
+        val parsed = runCatching {
+            val obj = json.parseToJsonElement(rawData) as? kotlinx.serialization.json.JsonObject
+            (obj?.get("message") as? kotlinx.serialization.json.JsonPrimitive)?.content
+                ?: (obj?.get("detail") as? kotlinx.serialization.json.JsonPrimitive)?.content
+        }.getOrNull()
+        return parsed?.takeIf { it.isNotBlank() } ?: rawData
     }
 
     fun parseWireStream(rawWireText: String): List<ScanSseEvent> {

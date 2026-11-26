@@ -6,8 +6,11 @@ import com.pillscope.app.data.local.entity.CachedLifestyleTriggerEntity
 import com.pillscope.app.data.local.entity.DefaultProfileIds
 import com.pillscope.app.data.local.entity.MedicationEntity
 import com.pillscope.app.data.local.entity.SyncStatus
+import com.pillscope.app.data.remote.ApiCallError
 import com.pillscope.app.data.remote.PillScopeApi
 import com.pillscope.app.data.remote.dto.AllergyAlertDto
+import com.pillscope.app.data.remote.dto.AllergyEntryDto
+import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.LifestyleTriggerDto
 import com.pillscope.app.data.remote.dto.MedicationCreateRequestDto
@@ -15,6 +18,7 @@ import com.pillscope.app.data.remote.dto.MedicationRecallFlagDto
 import com.pillscope.app.data.remote.dto.MedicationResponseDto
 import com.pillscope.app.data.remote.dto.MedicationUpdateRequestDto
 import com.pillscope.app.data.remote.dto.SaltComponentDto
+import com.pillscope.app.data.remote.toApiCallError
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -46,6 +50,21 @@ data class OfflineAddResult(
     val localDuplicateAlerts: List<DuplicateSaltAlertDto>,
     val allergyAlerts: List<AllergyAlertDto> = emptyList(),
     val syncedWithServer: Boolean,
+    val apiError: ApiCallError? = null,
+)
+
+data class MedicationToggleResult(
+    val updatedLocally: Boolean,
+    val syncedWithServer: Boolean,
+    val duplicateAlerts: List<DuplicateSaltAlertDto> = emptyList(),
+    val allergyAlerts: List<AllergyAlertDto> = emptyList(),
+    val apiError: ApiCallError? = null,
+)
+
+data class MedicationDeleteResult(
+    val deletedLocally: Boolean,
+    val syncedWithServer: Boolean,
+    val apiError: ApiCallError? = null,
 )
 
 data class CabinetSyncReport(
@@ -54,6 +73,7 @@ data class CabinetSyncReport(
     val pushedDeletes: Int = 0,
     val pulledCount: Int = 0,
     val failedOperations: Int = 0,
+    val error: ApiCallError? = null,
 ) {
     val isSuccess: Boolean get() = failedOperations == 0
 }
@@ -107,6 +127,42 @@ class CabinetRepository {
             }
         }
 
+    suspend fun searchDrugCatalog(
+        query: String,
+        countryCode: String? = "IN",
+        limit: Int = 8,
+    ): Result<List<BrandCandidateDto>> {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return Result.success(emptyList())
+        return runCatching {
+            api.searchDrugs(query = trimmed, countryCode = countryCode, limit = limit)
+        }
+    }
+
+    suspend fun fetchMedicationDetail(
+        medicationId: String,
+        profileId: String?,
+    ): CabinetMedication? {
+        val existing = medicationDao.getById(medicationId)
+        if (medicationId.startsWith("local-")) {
+            return existing?.let(::toDomain)
+        }
+        val serverProfileId = profileId?.takeIf {
+            it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
+        }
+        val remote = runCatching {
+            api.getMedicationDetail(medicationId = medicationId, profileId = serverProfileId)
+        }.getOrNull()
+        if (remote != null) {
+            val now = System.currentTimeMillis()
+            val entity = fromRemoteDto(remote, profileId ?: DefaultProfileIds.LOCAL_DEFAULT, now)
+            medicationDao.upsert(entity)
+            cacheLifestyleTriggers(remote, now)
+            return toDomain(entity)
+        }
+        return existing?.let(::toDomain)
+    }
+
     suspend fun checkOfflineDuplicates(
         candidateSalts: List<String>,
         profileId: String? = null,
@@ -148,9 +204,12 @@ class CabinetRepository {
         brandMappingId: String? = null,
         dosageSchedule: String? = null,
         profileId: String? = null,
+        profileAllergies: List<AllergyEntryDto> = emptyList(),
     ): OfflineAddResult {
         val resolvedProfileId = profileId?.takeIf { it.isNotBlank() } ?: DefaultProfileIds.LOCAL_DEFAULT
-        val serverProfileId = profileId?.takeIf { it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT }
+        val serverProfileId = profileId?.takeIf {
+            it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
+        }
         val normalizedKeys = genericSalts
             .map { it.canonicalSalt.trim().lowercase() }
             .filter { it.isNotEmpty() }
@@ -158,6 +217,7 @@ class CabinetRepository {
             .sorted()
 
         val localDuplicates = checkOfflineDuplicates(normalizedKeys, resolvedProfileId)
+        val localAllergies = OfflineAllergyChecker.detectConflicts(normalizedKeys, profileAllergies)
         val localId = "local-${UUID.randomUUID()}"
         val now = System.currentTimeMillis()
         val pendingEntity = MedicationEntity(
@@ -185,37 +245,62 @@ class CabinetRepository {
                     isActive = true,
                 ),
             )
-        }.getOrNull()
-
-        return if (remoteResult != null) {
-            val syncedEntity = fromRemoteDto(remoteResult.medication, resolvedProfileId, now)
-            medicationDao.deleteById(localId)
-            medicationDao.upsert(syncedEntity)
-            cacheLifestyleTriggers(remoteResult.medication, now)
-            OfflineAddResult(
-                medication = toDomain(syncedEntity),
-                localDuplicateAlerts = remoteResult.duplicateSalts.ifEmpty { localDuplicates },
-                allergyAlerts = remoteResult.allergyAlerts,
-                syncedWithServer = true,
-            )
-        } else {
-            OfflineAddResult(
-                medication = toDomain(pendingEntity),
-                localDuplicateAlerts = localDuplicates,
-                allergyAlerts = emptyList(),
-                syncedWithServer = false,
-            )
         }
+
+        return remoteResult.fold(
+            onSuccess = { created ->
+                val syncedEntity = fromRemoteDto(created.medication, resolvedProfileId, now)
+                medicationDao.deleteById(localId)
+                medicationDao.upsert(syncedEntity)
+                cacheLifestyleTriggers(created.medication, now)
+                OfflineAddResult(
+                    medication = toDomain(syncedEntity),
+                    localDuplicateAlerts = created.duplicateSalts.ifEmpty { localDuplicates },
+                    allergyAlerts = created.allergyAlerts.ifEmpty { localAllergies },
+                    syncedWithServer = true,
+                )
+            },
+            onFailure = { exc ->
+                OfflineAddResult(
+                    medication = toDomain(pendingEntity),
+                    localDuplicateAlerts = localDuplicates,
+                    allergyAlerts = localAllergies,
+                    syncedWithServer = false,
+                    apiError = exc.toApiCallError(json),
+                )
+            },
+        )
     }
 
-    suspend fun toggleMedicationActive(id: String, isActive: Boolean): Boolean {
-        val existing = medicationDao.getById(id) ?: return false
+    suspend fun toggleMedicationActive(id: String, isActive: Boolean): Boolean =
+        toggleMedicationActiveDetailed(id, isActive).syncedWithServer
+
+    suspend fun toggleMedicationActiveDetailed(
+        id: String,
+        isActive: Boolean,
+        profileAllergies: List<AllergyEntryDto> = emptyList(),
+    ): MedicationToggleResult {
+        val existing = medicationDao.getById(id)
+            ?: return MedicationToggleResult(updatedLocally = false, syncedWithServer = false)
         val now = System.currentTimeMillis()
         val nextSyncStatus = if (existing.syncStatus == SyncStatus.PENDING_CREATE) {
             SyncStatus.PENDING_CREATE
         } else {
             SyncStatus.PENDING_UPDATE
         }
+
+        val saltKeys = existing.canonicalSaltKeysCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val localDuplicates = if (isActive && !existing.isActive) {
+            checkOfflineDuplicates(saltKeys, existing.profileId).filter { it.existingMedicationId != existing.id }
+        } else {
+            emptyList()
+        }
+        val localAllergies = if (isActive && !existing.isActive) {
+            OfflineAllergyChecker.detectConflicts(saltKeys, profileAllergies)
+        } else {
+            emptyList()
+        }
+
         val updatedLocal = existing.copy(
             isActive = isActive,
             syncStatus = nextSyncStatus,
@@ -224,26 +309,49 @@ class CabinetRepository {
         medicationDao.upsert(updatedLocal)
 
         if (nextSyncStatus == SyncStatus.PENDING_CREATE) {
-            return false
+            return MedicationToggleResult(
+                updatedLocally = true,
+                syncedWithServer = false,
+                duplicateAlerts = localDuplicates,
+                allergyAlerts = localAllergies,
+            )
         }
 
-        val remote = runCatching {
+        val remoteResult = runCatching {
             api.updateMedication(id, MedicationUpdateRequestDto(isActive = isActive))
-        }.getOrNull()
-
-        return if (remote != null) {
-            medicationDao.upsert(fromRemoteDto(remote, existing.profileId, now))
-            true
-        } else {
-            false
         }
+
+        return remoteResult.fold(
+            onSuccess = { remote ->
+                medicationDao.upsert(fromRemoteDto(remote, existing.profileId, now))
+                MedicationToggleResult(
+                    updatedLocally = true,
+                    syncedWithServer = true,
+                    duplicateAlerts = remote.duplicateSalts.ifEmpty { localDuplicates },
+                    allergyAlerts = remote.allergyAlerts.ifEmpty { localAllergies },
+                )
+            },
+            onFailure = { exc ->
+                MedicationToggleResult(
+                    updatedLocally = true,
+                    syncedWithServer = false,
+                    duplicateAlerts = localDuplicates,
+                    allergyAlerts = localAllergies,
+                    apiError = exc.toApiCallError(json),
+                )
+            },
+        )
     }
 
-    suspend fun deleteMedication(id: String): Boolean {
-        val existing = medicationDao.getById(id) ?: return false
+    suspend fun deleteMedication(id: String): Boolean =
+        deleteMedicationDetailed(id).syncedWithServer
+
+    suspend fun deleteMedicationDetailed(id: String): MedicationDeleteResult {
+        val existing = medicationDao.getById(id)
+            ?: return MedicationDeleteResult(deletedLocally = false, syncedWithServer = false)
         if (existing.syncStatus == SyncStatus.PENDING_CREATE) {
             medicationDao.deleteById(id)
-            return true
+            return MedicationDeleteResult(deletedLocally = true, syncedWithServer = true)
         }
 
         val now = System.currentTimeMillis()
@@ -254,15 +362,27 @@ class CabinetRepository {
             ),
         )
 
-        val remoteDeleted = runCatching {
+        val remoteResult = runCatching {
             val response = api.deleteMedication(id)
-            response.isSuccessful || response.code() == 404
-        }.getOrDefault(false)
-
-        if (remoteDeleted) {
-            medicationDao.deleteById(id)
+            if (!response.isSuccessful && response.code() != 404) {
+                throw retrofit2.HttpException(response)
+            }
+            true
         }
-        return remoteDeleted
+
+        return remoteResult.fold(
+            onSuccess = {
+                medicationDao.deleteById(id)
+                MedicationDeleteResult(deletedLocally = true, syncedWithServer = true)
+            },
+            onFailure = { exc ->
+                MedicationDeleteResult(
+                    deletedLocally = true,
+                    syncedWithServer = false,
+                    apiError = exc.toApiCallError(json),
+                )
+            },
+        )
     }
 
     suspend fun syncWithBackend(profileId: String? = null): CabinetSyncReport {
@@ -270,6 +390,7 @@ class CabinetRepository {
         var updates = 0
         var deletes = 0
         var failed = 0
+        var firstError: ApiCallError? = null
         val now = System.currentTimeMillis()
         val serverProfileId = profileId?.takeIf {
             it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
@@ -283,7 +404,7 @@ class CabinetRepository {
                     val targetProfile = entity.profileId.takeIf {
                         it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
                     } ?: serverProfileId
-                    val remote = runCatching {
+                    val remoteResult = runCatching {
                         api.createMedication(
                             MedicationCreateRequestDto(
                                 profileId = targetProfile,
@@ -294,20 +415,24 @@ class CabinetRepository {
                                 isActive = entity.isActive,
                             ),
                         )
-                    }.getOrNull()
-
-                    if (remote != null) {
-                        medicationDao.deleteById(entity.id)
-                        medicationDao.upsert(fromRemoteDto(remote.medication, entity.profileId, now))
-                        cacheLifestyleTriggers(remote.medication, now)
-                        creates++
-                    } else {
-                        failed++
                     }
+
+                    remoteResult.fold(
+                        onSuccess = { remote ->
+                            medicationDao.deleteById(entity.id)
+                            medicationDao.upsert(fromRemoteDto(remote.medication, entity.profileId, now))
+                            cacheLifestyleTriggers(remote.medication, now)
+                            creates++
+                        },
+                        onFailure = { exc ->
+                            if (firstError == null) firstError = exc.toApiCallError(json)
+                            failed++
+                        },
+                    )
                 }
 
                 SyncStatus.PENDING_UPDATE -> {
-                    val remote = runCatching {
+                    val remoteResult = runCatching {
                         api.updateMedication(
                             entity.id,
                             MedicationUpdateRequestDto(
@@ -316,56 +441,71 @@ class CabinetRepository {
                                 isActive = entity.isActive,
                             ),
                         )
-                    }.getOrNull()
-
-                    if (remote != null) {
-                        medicationDao.upsert(fromRemoteDto(remote, entity.profileId, now))
-                        updates++
-                    } else {
-                        failed++
                     }
+
+                    remoteResult.fold(
+                        onSuccess = { remote ->
+                            medicationDao.upsert(fromRemoteDto(remote, entity.profileId, now))
+                            updates++
+                        },
+                        onFailure = { exc ->
+                            if (firstError == null) firstError = exc.toApiCallError(json)
+                            failed++
+                        },
+                    )
                 }
 
                 SyncStatus.PENDING_DELETE -> {
-                    val deleted = runCatching {
+                    val remoteResult = runCatching {
                         val response = api.deleteMedication(entity.id)
-                        response.isSuccessful || response.code() == 404
-                    }.getOrDefault(false)
-
-                    if (deleted) {
-                        medicationDao.deleteById(entity.id)
-                        deletes++
-                    } else {
-                        failed++
+                        if (!response.isSuccessful && response.code() != 404) {
+                            throw retrofit2.HttpException(response)
+                        }
+                        true
                     }
+
+                    remoteResult.fold(
+                        onSuccess = {
+                            medicationDao.deleteById(entity.id)
+                            deletes++
+                        },
+                        onFailure = { exc ->
+                            if (firstError == null) firstError = exc.toApiCallError(json)
+                            failed++
+                        },
+                    )
                 }
             }
         }
 
-        val remoteList = runCatching {
+        val remoteListResult = runCatching {
             api.listMedications(profileId = serverProfileId, activeOnly = false)
-        }.getOrNull()
-
-        val pulledCount = if (remoteList != null) {
-            val stillPendingIds = medicationDao.getPendingSync().map { it.id }.toSet()
-            val targetLocalProfileId = profileId ?: DefaultProfileIds.LOCAL_DEFAULT
-            if (profileId.isNullOrBlank()) {
-                medicationDao.clearSynced()
-            } else {
-                medicationDao.clearSyncedForProfile(profileId)
-            }
-            val remoteEntities = remoteList
-                .filter { it.id !in stillPendingIds }
-                .map { dto ->
-                    cacheLifestyleTriggers(dto, now)
-                    fromRemoteDto(dto, targetLocalProfileId, now)
-                }
-            medicationDao.upsertAll(remoteEntities)
-            remoteEntities.size
-        } else {
-            failed++
-            0
         }
+
+        val pulledCount = remoteListResult.fold(
+            onSuccess = { remoteList ->
+                val stillPendingIds = medicationDao.getPendingSync().map { it.id }.toSet()
+                val targetLocalProfileId = profileId ?: DefaultProfileIds.LOCAL_DEFAULT
+                if (profileId.isNullOrBlank()) {
+                    medicationDao.clearSynced()
+                } else {
+                    medicationDao.clearSyncedForProfile(profileId)
+                }
+                val remoteEntities = remoteList
+                    .filter { it.id !in stillPendingIds }
+                    .map { dto ->
+                        cacheLifestyleTriggers(dto, now)
+                        fromRemoteDto(dto, targetLocalProfileId, now)
+                    }
+                medicationDao.upsertAll(remoteEntities)
+                remoteEntities.size
+            },
+            onFailure = { exc ->
+                if (firstError == null) firstError = exc.toApiCallError(json)
+                failed++
+                0
+            },
+        )
 
         return CabinetSyncReport(
             pushedCreates = creates,
@@ -373,6 +513,7 @@ class CabinetRepository {
             pushedDeletes = deletes,
             pulledCount = pulledCount,
             failedOperations = failed,
+            error = firstError,
         )
     }
 

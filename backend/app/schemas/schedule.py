@@ -27,6 +27,7 @@ class ScheduledDoseItem(BaseModel):
     recommended_time: str
     dose_number: int = 1
     total_daily_doses: int = 1
+    frequency_note: str | None = None
     rationale: list[str] = Field(default_factory=list)
     separation_notes: list[str] = Field(default_factory=list)
 

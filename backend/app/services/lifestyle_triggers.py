@@ -109,9 +109,7 @@ _TRIGGER_RULES: tuple[_TriggerRule, ...] = (
     ),
     _TriggerRule(
         trigger_type="GRAPEFRUIT",
-        include_patterns=(
-            re.compile(r"\bgrapefruit(?:\s+juice|\s+products?)?\b", re.IGNORECASE),
-        ),
+        include_patterns=(re.compile(r"\bgrapefruit(?:\s+juice|\s+products?)?\b", re.IGNORECASE),),
         exclude_patterns=(
             re.compile(
                 r"\bno\s+(?:clinically\s+)?(?:significant\s+)?(?:interaction|effect)s?\s+(?:with|of)\s+grapefruit\b",
@@ -329,9 +327,7 @@ _TRIGGER_RULES: tuple[_TriggerRule, ...] = (
                 re.IGNORECASE,
             ),
         ),
-        exclude_patterns=(
-            re.compile(r"\bno\s+evidence\s+of\s+photosensitivity\b", re.IGNORECASE),
-        ),
+        exclude_patterns=(re.compile(r"\bno\s+evidence\s+of\s+photosensitivity\b", re.IGNORECASE),),
         high_severity_patterns=(
             re.compile(
                 r"\b(?:phototox(?:ic|icity)|severe\s+sunburn|exaggerated\s+sunburn|"
@@ -439,6 +435,248 @@ def extract_lifestyle_triggers_from_chunks(
     return [item[2] for item in ordered]
 
 
+_BASELINE_SALT_TRIGGERS: dict[str, tuple[LifestyleTrigger, ...]] = {
+    "warfarin": (
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note=(
+                "Avoid or strictly limit alcohol; alcohol alters INR and raises bleeding risk."
+            ),
+            source_section="warnings",
+        ),
+    ),
+    "metronidazole": (
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note=(
+                "Avoid alcohol during therapy and for 3 days afterward (disulfiram-like reaction)."
+            ),
+            source_section="warnings",
+        ),
+    ),
+    "tinidazole": (
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note=(
+                "Avoid alcohol during therapy and for 3 days afterward (disulfiram-like reaction)."
+            ),
+            source_section="warnings",
+        ),
+    ),
+    "acetaminophen": (
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note=(
+                "Avoid heavy alcohol consumption; combining with acetaminophen raises "
+                "liver injury risk."
+            ),
+            source_section="warnings",
+        ),
+    ),
+    "simvastatin": (
+        LifestyleTrigger(
+            type="GRAPEFRUIT",
+            severity="HIGH",
+            short_note=(
+                "Avoid grapefruit juice; CYP3A4 inhibition increases myopathy and "
+                "rhabdomyolysis risk."
+            ),
+            source_section="drug_interactions",
+        ),
+    ),
+    "atorvastatin": (
+        LifestyleTrigger(
+            type="GRAPEFRUIT",
+            severity="MODERATE",
+            short_note="Avoid large quantities of grapefruit juice while taking atorvastatin.",
+            source_section="drug_interactions",
+        ),
+    ),
+    "lovastatin": (
+        LifestyleTrigger(
+            type="GRAPEFRUIT",
+            severity="HIGH",
+            short_note="Avoid grapefruit juice due to increased risk of statin myopathy.",
+            source_section="drug_interactions",
+        ),
+    ),
+    "amlodipine": (
+        LifestyleTrigger(
+            type="GRAPEFRUIT",
+            severity="MODERATE",
+            short_note=(
+                "Large amounts of grapefruit juice may increase blood-pressure-lowering effects."
+            ),
+            source_section="drug_interactions",
+        ),
+    ),
+    "ciprofloxacin": (
+        LifestyleTrigger(
+            type="DAIRY",
+            severity="HIGH",
+            short_note="Separate from milk, yogurt, and calcium-fortified drinks by 2-4 hours.",
+            source_section="dosage_and_administration",
+        ),
+        LifestyleTrigger(
+            type="SUN_SENSITIVITY",
+            severity="MODERATE",
+            short_note="May cause photosensitivity; use sunscreen and limit prolonged UV exposure.",
+            source_section="warnings",
+        ),
+    ),
+    "levofloxacin": (
+        LifestyleTrigger(
+            type="DAIRY",
+            severity="MODERATE",
+            short_note=(
+                "Separate from divalent cations and calcium/iron supplements by at least 2 hours."
+            ),
+            source_section="dosage_and_administration",
+        ),
+        LifestyleTrigger(
+            type="SUN_SENSITIVITY",
+            severity="MODERATE",
+            short_note="Use sun protection and avoid excessive sunlight exposure.",
+            source_section="warnings",
+        ),
+    ),
+    "doxycycline": (
+        LifestyleTrigger(
+            type="DAIRY",
+            severity="MODERATE",
+            short_note=(
+                "Separate from milk, dairy, calcium, and iron supplements by at least 2 hours."
+            ),
+            source_section="drug_interactions",
+        ),
+        LifestyleTrigger(
+            type="SUN_SENSITIVITY",
+            severity="HIGH",
+            short_note=(
+                "May cause exaggerated sunburn reactions; wear sunscreen and protective clothing."
+            ),
+            source_section="warnings",
+        ),
+    ),
+    "levothyroxine": (
+        LifestyleTrigger(
+            type="EMPTY_STOMACH",
+            severity="HIGH",
+            short_note="Take on an empty stomach with water 30-60 minutes before breakfast.",
+            source_section="dosage_and_administration",
+        ),
+    ),
+    "alendronate": (
+        LifestyleTrigger(
+            type="EMPTY_STOMACH",
+            severity="HIGH",
+            short_note="Take with plain water at least 30 minutes before food and stay upright.",
+            source_section="dosage_and_administration",
+        ),
+    ),
+    "omeprazole": (
+        LifestyleTrigger(
+            type="EMPTY_STOMACH",
+            severity="MODERATE",
+            short_note="Take 30-60 minutes before a meal for best acid suppression.",
+            source_section="dosage_and_administration",
+        ),
+    ),
+    "pantoprazole": (
+        LifestyleTrigger(
+            type="EMPTY_STOMACH",
+            severity="MODERATE",
+            short_note="Take 30-60 minutes before breakfast for optimal effect.",
+            source_section="dosage_and_administration",
+        ),
+    ),
+    "metformin": (
+        LifestyleTrigger(
+            type="WITH_FOOD",
+            severity="MODERATE",
+            short_note="Take with meals to minimize gastrointestinal upset.",
+            source_section="dosage_and_administration",
+        ),
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note="Avoid excessive alcohol intake due to lactic acidosis risk.",
+            source_section="warnings",
+        ),
+    ),
+    "ibuprofen": (
+        LifestyleTrigger(
+            type="WITH_FOOD",
+            severity="MODERATE",
+            short_note="Take with food or meals to minimize stomach irritation.",
+            source_section="dosage_and_administration",
+        ),
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="MODERATE",
+            short_note="Alcohol increases the risk of NSAID-related stomach bleeding.",
+            source_section="warnings",
+        ),
+    ),
+    "diclofenac": (
+        LifestyleTrigger(
+            type="WITH_FOOD",
+            severity="MODERATE",
+            short_note="Take with food to reduce gastrointestinal discomfort.",
+            source_section="dosage_and_administration",
+        ),
+    ),
+    "naproxen": (
+        LifestyleTrigger(
+            type="WITH_FOOD",
+            severity="MODERATE",
+            short_note="Take with food or meals to minimize stomach upset.",
+            source_section="dosage_and_administration",
+        ),
+    ),
+    "diphenhydramine": (
+        LifestyleTrigger(
+            type="DROWSINESS",
+            severity="HIGH",
+            short_note="Causes marked drowsiness; avoid driving or operating heavy machinery.",
+            source_section="warnings",
+        ),
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note="Avoid alcohol due to additive CNS depression and sedation.",
+            source_section="drug_interactions",
+        ),
+    ),
+    "cetirizine": (
+        LifestyleTrigger(
+            type="DROWSINESS",
+            severity="MODERATE",
+            short_note="May cause drowsiness in some patients; use caution when driving.",
+            source_section="warnings",
+        ),
+    ),
+    "alprazolam": (
+        LifestyleTrigger(
+            type="DROWSINESS",
+            severity="HIGH",
+            short_note="May cause sedation and impair alertness; do not drive if affected.",
+            source_section="warnings",
+        ),
+        LifestyleTrigger(
+            type="ALCOHOL",
+            severity="HIGH",
+            short_note="Avoid alcohol due to life-threatening CNS and respiratory depression risk.",
+            source_section="warnings",
+        ),
+    ),
+}
+
+
 async def extract_lifestyle_triggers_by_salt(
     session: AsyncSession,
     canonical_salts: Iterable[str],
@@ -458,24 +696,31 @@ async def extract_lifestyle_triggers_by_salt(
     for row in rows:
         chunks_by_salt.setdefault(row.canonical_salt, []).append(row)
 
-    return {
-        salt: extract_lifestyle_triggers_from_chunks(chunks_by_salt.get(salt, []))
-        for salt in normalized
-    }
+    results: dict[str, list[LifestyleTrigger]] = {}
+    for salt in normalized:
+        salt_chunks = chunks_by_salt.get(salt, [])
+        if salt_chunks:
+            results[salt] = extract_lifestyle_triggers_from_chunks(salt_chunks)
+        else:
+            results[salt] = list(_BASELINE_SALT_TRIGGERS.get(salt, ()))
+    return results
 
 
 async def extract_lifestyle_triggers_for_salts(
     session: AsyncSession,
     canonical_salts: Iterable[str],
 ) -> list[LifestyleTrigger]:
-    normalized = canonical_salt_keys(canonical_salts)
-    if not normalized:
-        return []
-
-    stmt = (
-        select(MonographChunk)
-        .where(MonographChunk.canonical_salt.in_(normalized))
-        .order_by(MonographChunk.canonical_salt.asc(), MonographChunk.chunk_index.asc())
+    by_salt = await extract_lifestyle_triggers_by_salt(session, canonical_salts)
+    best_by_type: dict[LifestyleTriggerType, LifestyleTrigger] = {}
+    for triggers in by_salt.values():
+        for trigger in triggers:
+            existing = best_by_type.get(trigger.type)
+            if (
+                existing is None
+                or _SEVERITY_RANK[trigger.severity] > _SEVERITY_RANK[existing.severity]
+            ):
+                best_by_type[trigger.type] = trigger
+    return sorted(
+        best_by_type.values(),
+        key=lambda item: (-_SEVERITY_RANK[item.severity], item.type),
     )
-    rows = list((await session.execute(stmt)).scalars().all())
-    return extract_lifestyle_triggers_from_chunks(rows)

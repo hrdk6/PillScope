@@ -1,10 +1,18 @@
 package com.pillscope.app.ui.scan
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -16,6 +24,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,13 +44,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,14 +59,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -75,12 +89,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pillscope.app.data.remote.dto.BrandCandidateDto
@@ -91,8 +110,10 @@ import com.pillscope.app.ml.MedicineLabelAnalyzer
 import com.pillscope.app.ml.NormalizedCropRect
 import com.pillscope.app.ml.OcrTextBlockBox
 import com.pillscope.app.ui.profiles.ActiveProfilePill
+import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -111,6 +132,7 @@ fun CameraScanScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
 
     var hasCameraPermission by remember {
@@ -118,6 +140,24 @@ fun CameraScanScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED,
         )
+    }
+    var permissionRequested by remember { mutableStateOf(false) }
+    var torchEnabled by remember { mutableStateOf(false) }
+    var hasFlashUnit by remember { mutableStateOf(false) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+
+    // Refresh permission state when returning from Android App Settings.
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasCameraPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var previousAcceptable by remember { mutableStateOf(false) }
@@ -133,14 +173,17 @@ fun CameraScanScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        permissionRequested = true
         hasCameraPermission = granted
     }
 
-    LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
+    val activity = remember(context) { context.findActivity() }
+    val isPermanentlyDenied = permissionRequested && !hasCameraPermission && (
+        activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(
+            activity,
+            Manifest.permission.CAMERA,
+        )
+        )
 
     Column(
         modifier = modifier
@@ -159,6 +202,11 @@ fun CameraScanScreen(
             if (hasCameraPermission) {
                 CameraPreviewWithAnalyzer(
                     viewModel = viewModel,
+                    torchEnabled = torchEnabled,
+                    onCameraBound = { camera ->
+                        boundCamera = camera
+                        hasFlashUnit = camera?.cameraInfo?.hasFlashUnit() == true
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
                 OpticalViewfinderHudOverlay(
@@ -183,13 +231,32 @@ fun CameraScanScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "Allow camera access to inspect blister packs and medicine labels live.",
+                        text = if (isPermanentlyDenied) {
+                            "Camera permission is disabled. Open App Settings to enable live scanning, or search below."
+                        } else {
+                            "Enable camera access to read blister packs and medicine labels on-device (photos stay on your phone)."
+                        },
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(14.dp))
-                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                        Text("Enable camera")
+                    if (isPermanentlyDenied) {
+                        Button(
+                            onClick = {
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null),
+                                )
+                                runCatching { context.startActivity(intent) }
+                            },
+                        ) {
+                            Text("Open App Settings")
+                        }
+                    } else {
+                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                            Text("Enable camera")
+                        }
                     }
                 }
             }
@@ -208,18 +275,42 @@ fun CameraScanScreen(
                     darkSurface = true,
                 )
 
-                IconButton(
-                    onClick = viewModel::toggleCameraFreeze,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(Color.Black.copy(alpha = 0.58f), CircleShape),
-                ) {
-                    Icon(
-                        imageVector = if (state.isCameraFrozen) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = if (state.isCameraFrozen) "Resume camera" else "Freeze frame",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp),
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (hasCameraPermission && hasFlashUnit) {
+                        IconButton(
+                            onClick = {
+                                val next = !torchEnabled
+                                torchEnabled = next
+                                boundCamera?.cameraControl?.enableTorch(next)
+                            },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.Black.copy(alpha = 0.58f), CircleShape),
+                        ) {
+                            Icon(
+                                imageVector = if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                                contentDescription = if (torchEnabled) "Turn off flashlight" else "Turn on flashlight",
+                                tint = if (torchEnabled) PillScopeColors.HudAmberGlow else Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+
+                    if (hasCameraPermission) {
+                        IconButton(
+                            onClick = viewModel::toggleCameraFreeze,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.Black.copy(alpha = 0.58f), CircleShape),
+                        ) {
+                            Icon(
+                                imageVector = if (state.isCameraFrozen) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                contentDescription = if (state.isCameraFrozen) "Resume camera" else "Freeze frame",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -231,7 +322,29 @@ fun CameraScanScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                QualityHudStatusPill(quality = state.latestQuality)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    QualityHudStatusPill(quality = state.latestQuality)
+                    if (hasCameraPermission && state.latestQuality != null && !currentAcceptable) {
+                        Surface(
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.requestForcedOcrCapture()
+                            },
+                            shape = CircleShape,
+                            color = PillScopeColors.ClinicalTeal.copy(alpha = 0.92f),
+                        ) {
+                            Text(
+                                text = "Force scan",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -316,15 +429,39 @@ fun CameraScanScreen(
             label = { Text("Search medicine brand or generic salt") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
-                if (state.isResolving) {
-                    LoadingIndicator(
+                when {
+                    state.isResolving -> LoadingIndicator(
                         modifier = Modifier.size(24.dp),
                         color = PillScopeColors.ClinicalTeal,
                     )
+                    state.manualQuery.isNotEmpty() || state.rawOcrText.isNotEmpty() -> IconButton(
+                        onClick = viewModel::clearScanState,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear search and scan",
+                        )
+                    }
                 }
             },
             shape = RoundedCornerShape(18.dp),
         )
+
+        state.resolveError?.let { errorMsg ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = PillScopeColors.ModerateAmberSurface,
+                border = BorderStroke(1.dp, PillScopeColors.ModerateAmber.copy(alpha = 0.5f)),
+            ) {
+                Text(
+                    text = errorMsg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = PillScopeColors.ModerateAmberDark,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+        }
 
         if (state.resolvedCandidates.isNotEmpty()) {
             Text(
@@ -346,11 +483,20 @@ fun CameraScanScreen(
         }
 
         if (state.localSaltChips.isNotEmpty()) {
-            Text(
-                text = "Detected active salts",
-                style = MaterialTheme.typography.titleMedium,
-                color = PillScopeColors.InkPrimary,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Detected active salts",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PillScopeColors.InkPrimary,
+                )
+                TextButton(onClick = viewModel::clearScanState) {
+                    Text("Rescan")
+                }
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -361,8 +507,9 @@ fun CameraScanScreen(
                     } else {
                         chip.canonicalSalt
                     }
-                    AssistChip(
-                        onClick = { onAnalyzeRequest(viewModel.buildAnalyzeRequestForLocalChips()) },
+                    InputChip(
+                        selected = true,
+                        onClick = { viewModel.removeSaltChip(chip.canonicalSalt) },
                         label = { Text(label) },
                         shape = CircleShape,
                         leadingIcon = {
@@ -373,12 +520,28 @@ fun CameraScanScreen(
                                 modifier = Modifier.size(16.dp),
                             )
                         },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = PillScopeColors.ClinicalTealContainer,
-                            labelColor = PillScopeColors.ClinicalTealDeep,
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove ${chip.canonicalSalt}",
+                                modifier = Modifier.size(15.dp),
+                            )
+                        },
+                        colors = InputChipDefaults.inputChipColors(
+                            selectedContainerColor = PillScopeColors.ClinicalTealContainer,
+                            selectedLabelColor = PillScopeColors.ClinicalTealDeep,
+                            selectedTrailingIconColor = PillScopeColors.ClinicalTealDeep,
                         ),
                     )
                 }
+            }
+            OutlinedButton(
+                onClick = { onAnalyzeRequest(viewModel.buildAnalyzeRequestForLocalChips()) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                val count = state.localSaltChips.size
+                Text("Analyze $count detected ${if (count == 1) "salt" else "salts"}")
             }
         }
 
@@ -404,25 +567,52 @@ fun CameraScanScreen(
 @Composable
 private fun CameraPreviewWithAnalyzer(
     viewModel: ScanViewModel,
+    torchEnabled: Boolean,
+    onCameraBound: (Camera?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+    var cameraRef by remember { mutableStateOf<Camera?>(null) }
+
+    LaunchedEffect(torchEnabled, cameraRef) {
+        cameraRef?.cameraControl?.enableTorch(torchEnabled)
+    }
 
     DisposableEffect(Unit) {
-        onDispose { analysisExecutor.shutdown() }
+        onDispose {
+            runCatching { cameraProviderRef?.unbindAll() }
+            onCameraBound(null)
+            analysisExecutor.shutdown()
+        }
     }
 
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.pointerInput(Unit) {
+            detectTapGestures { offset ->
+                val pv = previewViewRef ?: return@detectTapGestures
+                val cam = cameraRef ?: return@detectTapGestures
+                val point = pv.meteringPointFactory.createPoint(offset.x, offset.y)
+                val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+                    .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                    .build()
+                runCatching { cam.cameraControl.startFocusAndMetering(action) }
+            }
+        },
         factory = { ctx ->
-            val previewView = PreviewView(ctx)
+            val previewView = PreviewView(ctx).apply {
+                scaleType = PreviewView.ScaleType.FIT_CENTER
+            }
+            previewViewRef = previewView
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
             cameraProviderFuture.addListener(
                 {
                     val cameraProvider = cameraProviderFuture.get()
+                    cameraProviderRef = cameraProvider
                     val preview = Preview.Builder().build().also {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
@@ -436,18 +626,21 @@ private fun CameraPreviewWithAnalyzer(
                                     preprocessor = viewModel.preprocessor,
                                     ocrEngine = viewModel.ocrEngine,
                                     scope = coroutineScope,
+                                    forceNextOcr = viewModel.forceNextOcr,
                                     onResult = viewModel::onCameraPipelineResult,
                                 ),
                             )
                         }
                     runCatching {
                         cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
+                        val camera = cameraProvider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,
                             analysis,
                         )
+                        cameraRef = camera
+                        onCameraBound(camera)
                     }
                 },
                 ContextCompat.getMainExecutor(context),
@@ -464,8 +657,9 @@ private fun OpticalViewfinderHudOverlay(
     isAcceptable: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val palette = LocalPillScopePalette.current
     val bracketColor by animateColorAsState(
-        targetValue = if (isAcceptable) PillScopeColors.HudEmeraldLock else PillScopeColors.HudAmberGlow,
+        targetValue = if (isAcceptable) palette.hudEmeraldLock else palette.hudAmberGlow,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "bracketColor",
     )
@@ -485,13 +679,13 @@ private fun OpticalViewfinderHudOverlay(
             val bWidth = ((block.bounds.right - block.bounds.left) * size.width).coerceAtLeast(8f)
             val bHeight = ((block.bounds.bottom - block.bounds.top) * size.height).coerceAtLeast(8f)
             drawRoundRect(
-                color = PillScopeColors.HudEmeraldLock.copy(alpha = 0.22f),
+                color = palette.hudEmeraldLock.copy(alpha = 0.22f),
                 topLeft = Offset(bLeft, bTop),
                 size = Size(bWidth, bHeight),
                 cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
             )
             drawRoundRect(
-                color = PillScopeColors.HudEmeraldLock.copy(alpha = 0.78f),
+                color = palette.hudEmeraldLock.copy(alpha = 0.78f),
                 topLeft = Offset(bLeft, bTop),
                 size = Size(bWidth, bHeight),
                 cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
@@ -567,7 +761,7 @@ private fun QualityHudStatusPill(
     val statusText = when {
         quality == null -> "Align medicine label inside brackets"
         quality.glareRatio > FrameQualityResult.MAX_GLARE_RATIO -> "Hold steady — glare detected"
-        quality.blurScore < FrameQualityResult.MIN_BLUR_SHARPNESS -> "Too blurry"
+        quality.blurScore < FrameQualityResult.MIN_BLUR_SHARPNESS -> "Too blurry — tap to focus"
         else -> "Sharp focus locked (${(quality.blurScore * 100).roundToInt()}%)"
     }
 
@@ -661,4 +855,10 @@ private fun BrandConfirmationChipCard(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

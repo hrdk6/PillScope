@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Coffee
@@ -32,14 +34,20 @@ import androidx.compose.material.icons.filled.Eco
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GppBad
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalBar
 import androidx.compose.material.icons.filled.LocalDining
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,8 +59,10 @@ import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,16 +76,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pillscope.app.data.remote.dto.InteractionItemDto
 import com.pillscope.app.data.remote.dto.LifestyleTriggerDto
 import com.pillscope.app.data.remote.dto.MonographCitationDto
 import com.pillscope.app.data.repository.AnalysisStage
+import com.pillscope.app.data.repository.CachedScanSummary
 import com.pillscope.app.data.repository.RiskLevel
 import com.pillscope.app.data.repository.ScanAnalysisState
+import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -85,10 +102,15 @@ import kotlin.math.sin
 @Composable
 fun ProgressiveAnalysisScreen(
     viewModel: AnalysisViewModel,
+    onAddToCabinet: ((displayName: String, canonicalSalts: List<String>) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val cachedHistory by viewModel.cachedHistory.collectAsStateWithLifecycle()
+    val canRetry by viewModel.canRetry.collectAsStateWithLifecycle()
     var selectedTrigger by remember { mutableStateOf<LifestyleTriggerDto?>(null) }
+    var addedForScanKey by remember(state.scanId, state.submittedQuery) { mutableStateOf(false) }
+    var showDangerAddConfirmation by remember { mutableStateOf(false) }
 
     val hasPinnedDanger = state.safetyBannerLocked ||
         state.allergyAlerts.isNotEmpty() ||
@@ -121,6 +143,72 @@ fun ProgressiveAnalysisScreen(
                 isStreaming = isStreaming,
             )
 
+            if (state.stage == AnalysisStage.COMPLETE &&
+                state.resolvedSalts.isNotEmpty() &&
+                onAddToCabinet != null
+            ) {
+                if (addedForScanKey) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = PillScopeColors.SafeEmeraldSurface,
+                        border = BorderStroke(1.dp, PillScopeColors.SafeEmerald.copy(alpha = 0.4f)),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = PillScopeColors.SafeEmerald,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "Saved to this profile's medication cabinet",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = PillScopeColors.SafeEmeraldDark,
+                            )
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            if (hasPinnedDanger) {
+                                showDangerAddConfirmation = true
+                            } else {
+                                onAddToCabinet(
+                                    state.submittedQuery.ifBlank { state.resolvedSalts.joinToString(" + ") },
+                                    state.resolvedSalts,
+                                )
+                                addedForScanKey = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = if (hasPinnedDanger) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = PillScopeColors.CriticalCrimson,
+                                contentColor = Color.White,
+                            )
+                        } else {
+                            ButtonDefaults.buttonColors()
+                        },
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            if (hasPinnedDanger) {
+                                "Add to Cabinet anyway (review alert)"
+                            } else {
+                                "Add to Cabinet"
+                            },
+                        )
+                    }
+                }
+            }
+
             LiveSsePipelineStrip(
                 stage = state.stage,
                 isStreaming = isStreaming,
@@ -143,16 +231,31 @@ fun ProgressiveAnalysisScreen(
 
             state.errorMessage?.let { err ->
                 Surface(
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     color = PillScopeColors.ModerateAmberSurface,
                     border = BorderStroke(1.dp, PillScopeColors.ModerateAmber),
                 ) {
-                    Text(
-                        text = "Stream notice: $err",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PillScopeColors.ModerateAmberDark,
+                    Column(
                         modifier = Modifier.padding(14.dp),
-                    )
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "Analysis error: $err",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PillScopeColors.ModerateAmberDark,
+                        )
+                        if (canRetry) {
+                            OutlinedButton(
+                                onClick = viewModel::retryLastAnalysis,
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.size(6.dp))
+                                Text("Retry safety analysis")
+                            }
+                        }
+                    }
                 }
             }
 
@@ -189,8 +292,69 @@ fun ProgressiveAnalysisScreen(
                 }
             }
 
+            if (cachedHistory.isNotEmpty()) {
+                HorizontalDivider(color = PillScopeColors.SlateBorder)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = PillScopeColors.ClinicalTeal,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Recent scans (${cachedHistory.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = PillScopeColors.InkPrimary,
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    cachedHistory.take(10).forEach { summary ->
+                        CachedScanHistoryCard(
+                            summary = summary,
+                            isCurrentlyOpen = summary.scanId == state.scanId,
+                            onClick = { viewModel.openCachedReport(summary.scanId) },
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
         }
+    }
+
+    if (showDangerAddConfirmation && onAddToCabinet != null) {
+        AlertDialog(
+            onDismissRequest = { showDangerAddConfirmation = false },
+            title = { Text("Critical safety warning") },
+            text = {
+                Text(
+                    "This medication triggered a locked safety alert (major interaction, allergy, duplicate salt, or FDA recall). " +
+                        "Consult a doctor or pharmacist before taking it. Save to your cabinet record anyway?",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDangerAddConfirmation = false
+                        onAddToCabinet(
+                            state.submittedQuery.ifBlank { state.resolvedSalts.joinToString(" + ") },
+                            state.resolvedSalts,
+                        )
+                        addedForScanKey = true
+                    },
+                ) {
+                    Text("Save anyway", color = PillScopeColors.CriticalCrimson)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDangerAddConfirmation = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 
     selectedTrigger?.let { trigger ->
@@ -276,6 +440,13 @@ private fun PinnedCriticalSafetyBanner(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            if (state.activeRecalls.isNotEmpty()) {
+                Text(
+                    text = "US FDA enforcement recall matched by active salt — check your pack manufacturer & lot number with a pharmacist.",
+                    color = Color.White.copy(alpha = 0.88f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
     }
 }
@@ -286,8 +457,16 @@ private fun RiskGaugeHeroCard(
     state: ScanAnalysisState,
     isStreaming: Boolean,
 ) {
+    val palette = LocalPillScopePalette.current
+    val isUnrecognized = state.stage.ordinal >= AnalysisStage.DETERMINISTIC_READY.ordinal &&
+        state.stage != AnalysisStage.ERROR &&
+        state.resolvedSalts.isEmpty()
+
     val targetFraction = when {
         state.stage == AnalysisStage.IDLE -> 0.05f
+        state.stage == AnalysisStage.CONNECTING -> 0.28f
+        state.stage == AnalysisStage.ERROR -> 0.50f
+        isUnrecognized -> 0.50f
         state.safetyBannerLocked || state.overallRisk == RiskLevel.MAJOR -> 0.96f
         state.overallRisk == RiskLevel.MODERATE -> 0.64f
         state.overallRisk == RiskLevel.MINOR -> 0.36f
@@ -302,16 +481,23 @@ private fun RiskGaugeHeroCard(
         label = "riskNeedle",
     )
     val riskAccent by animateColorAsState(
-        targetValue = when (state.overallRisk) {
-            RiskLevel.MAJOR -> PillScopeColors.CriticalCrimson
-            RiskLevel.MODERATE -> PillScopeColors.ModerateAmber
-            RiskLevel.MINOR -> PillScopeColors.MinorBlue
-            RiskLevel.NONE -> PillScopeColors.SafeEmerald
+        targetValue = when {
+            state.stage == AnalysisStage.IDLE -> palette.inkSecondary
+            state.stage == AnalysisStage.CONNECTING -> palette.clinicalTeal
+            state.stage == AnalysisStage.ERROR -> palette.criticalCrimson
+            isUnrecognized -> palette.moderateAmber
+            state.overallRisk == RiskLevel.MAJOR -> palette.criticalCrimson
+            state.overallRisk == RiskLevel.MODERATE -> palette.moderateAmber
+            state.overallRisk == RiskLevel.MINOR -> palette.minorBlue
+            else -> palette.safeEmerald
         },
         label = "riskAccent",
     )
     val riskHeadline = when {
         state.stage == AnalysisStage.IDLE -> "Ready to scan"
+        state.stage == AnalysisStage.CONNECTING -> "Analyzing safety…"
+        state.stage == AnalysisStage.ERROR -> "Analysis failed"
+        isUnrecognized -> "Medicine not recognized"
         state.overallRisk == RiskLevel.MAJOR -> "Major risk"
         state.overallRisk == RiskLevel.MODERATE -> "Moderate caution"
         state.overallRisk == RiskLevel.MINOR -> "Minor risk"
@@ -348,6 +534,12 @@ private fun RiskGaugeHeroCard(
                             style = MaterialTheme.typography.bodyMedium,
                             color = PillScopeColors.ClinicalTeal,
                             fontWeight = FontWeight.SemiBold,
+                        )
+                    } else if (isUnrecognized) {
+                        Text(
+                            text = "No active salts could be verified — retry with generic name",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = PillScopeColors.ModerateAmberDark,
                         )
                     }
                 }
@@ -387,10 +579,10 @@ private fun RiskGaugeHeroCard(
                     val arcSize = Size(diameter, diameter)
 
                     val segments = listOf(
-                        Triple(180f, 43f, PillScopeColors.SafeEmerald.copy(alpha = 0.25f)),
-                        Triple(225f, 43f, PillScopeColors.MinorBlue.copy(alpha = 0.25f)),
-                        Triple(270f, 43f, PillScopeColors.ModerateAmber.copy(alpha = 0.28f)),
-                        Triple(315f, 45f, PillScopeColors.CriticalCrimson.copy(alpha = 0.30f)),
+                        Triple(180f, 43f, palette.safeEmerald.copy(alpha = 0.25f)),
+                        Triple(225f, 43f, palette.minorBlue.copy(alpha = 0.25f)),
+                        Triple(270f, 43f, palette.moderateAmber.copy(alpha = 0.28f)),
+                        Triple(315f, 45f, palette.criticalCrimson.copy(alpha = 0.30f)),
                     )
                     for ((startAngle, sweep, color) in segments) {
                         drawArc(
@@ -423,19 +615,19 @@ private fun RiskGaugeHeroCard(
                         y = center.y + (sin(angleRad) * needleLen).toFloat(),
                     )
                     drawLine(
-                        color = PillScopeColors.InkPrimary,
+                        color = palette.inkPrimary,
                         start = center,
                         end = tip,
                         strokeWidth = 4.dp.toPx(),
                         cap = StrokeCap.Round,
                     )
                     drawCircle(
-                        color = PillScopeColors.InkPrimary,
+                        color = palette.inkPrimary,
                         radius = 7.dp.toPx(),
                         center = center,
                     )
                     drawCircle(
-                        color = Color.White,
+                        color = palette.cardSurface,
                         radius = 3.dp.toPx(),
                         center = center,
                     )
@@ -662,6 +854,7 @@ private fun LifestyleTriggerDetailContent(
     }
 }
 
+@Composable
 private fun lifestyleTriggerVisuals(trigger: LifestyleTriggerDto): Triple<Color, Color, ImageVector> {
     val icon = when (trigger.type.uppercase()) {
         "ALCOHOL" -> Icons.Default.LocalBar
@@ -824,6 +1017,7 @@ private fun ClinicalSummaryCard(
 @Composable
 private fun ExpandableCitationCard(citation: MonographCitationDto) {
     var expanded by remember(citation.chunkId) { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
 
     Card(
         onClick = { expanded = !expanded },
@@ -866,12 +1060,122 @@ private fun ExpandableCitationCard(citation: MonographCitationDto) {
                         style = MaterialTheme.typography.labelSmall,
                         color = PillScopeColors.InkSecondary,
                     )
+                    val isWebUrl = citation.sourceUrl.startsWith("https://") ||
+                        citation.sourceUrl.startsWith("http://")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = if (isWebUrl) {
+                            Modifier.clickable { runCatching { uriHandler.openUri(citation.sourceUrl) } }
+                        } else {
+                            Modifier
+                        },
+                    ) {
+                        Text(
+                            text = citation.sourceUrl,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                textDecoration = if (isWebUrl) TextDecoration.Underline else TextDecoration.None,
+                            ),
+                            color = PillScopeColors.MinorBlue,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (isWebUrl) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "Open source link",
+                                tint = PillScopeColors.MinorBlue,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CachedScanHistoryCard(
+    summary: CachedScanSummary,
+    isCurrentlyOpen: Boolean,
+    onClick: () -> Unit,
+) {
+    val riskColor = when (summary.overallRisk) {
+        RiskLevel.MAJOR -> PillScopeColors.CriticalCrimson
+        RiskLevel.MODERATE -> PillScopeColors.ModerateAmber
+        RiskLevel.MINOR -> PillScopeColors.MinorBlue
+        RiskLevel.NONE -> PillScopeColors.SafeEmerald
+    }
+    val formattedDate = remember(summary.createdAtEpochMs) {
+        if (summary.createdAtEpochMs <= 0L) {
+            ""
+        } else {
+            runCatching {
+                DateTimeFormatter.ofPattern("MMM d, HH:mm")
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(summary.createdAtEpochMs))
+            }.getOrDefault("")
+        }
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isCurrentlyOpen) {
+                PillScopeColors.ClinicalTealContainer.copy(alpha = 0.45f)
+            } else {
+                PillScopeColors.CardSurface
+            },
+        ),
+        border = BorderStroke(
+            width = if (isCurrentlyOpen) 1.5.dp else 1.dp,
+            color = if (isCurrentlyOpen) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = summary.submittedQuery.ifBlank { summary.resolvedSalts.joinToString(" + ") },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = PillScopeColors.InkPrimary,
+                )
+                if (summary.resolvedSalts.isNotEmpty()) {
                     Text(
-                        text = citation.sourceUrl,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = PillScopeColors.MinorBlue,
+                        text = summary.resolvedSalts.joinToString(" + "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PillScopeColors.ClinicalTeal,
                     )
                 }
+                if (formattedDate.isNotEmpty()) {
+                    Text(
+                        text = formattedDate,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = PillScopeColors.InkSecondary,
+                    )
+                }
+            }
+            Surface(
+                shape = CircleShape,
+                color = riskColor.copy(alpha = 0.14f),
+            ) {
+                Text(
+                    text = if (summary.overallRisk == RiskLevel.NONE) {
+                        "Safe"
+                    } else {
+                        summary.overallRisk.name.lowercase().replaceFirstChar { it.uppercase() }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = riskColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                )
             }
         }
     }

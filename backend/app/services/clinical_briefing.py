@@ -65,6 +65,24 @@ class LlmBriefingGenerator(Protocol):
 
 
 def build_abstention_summary(context: BriefingContext) -> ClinicalSummary:
+    if not context.resolved_salts:
+        return ClinicalSummary(
+            headline=f"Could not identify active ingredients for '{context.submitted_query}'.",
+            patient_explanation=(
+                f"PillScope could not match '{context.submitted_query}' to a known medicine or "
+                "extract its active pharmaceutical ingredients. Do not assume this medication is "
+                "safe to combine with your cabinet — check the generic salt printed on the pack "
+                "and search again or ask a pharmacist."
+            ),
+            actionable_next_steps=[
+                "Enter the generic salt name printed on the blister strip or bottle.",
+                "Consult a pharmacist or physician before taking an unidentified medicine.",
+            ],
+            cited_chunk_ids=[],
+            abstained=True,
+            abstention_reason="UNRECOGNIZED_MEDICATION",
+        )
+
     if context.safety_banner_locked:
         reasons: list[str] = []
         if context.allergy_alerts:
@@ -452,5 +470,11 @@ def get_briefing_generator(settings: Settings | None = None) -> LlmBriefingGener
             api_key=resolved.openai_api_key,
             model_name=resolved.llm_model,
             timeout_seconds=resolved.llm_timeout_seconds,
+        )
+    if resolved.app_env != "test":
+        logger.warning(
+            "llm_api_key_missing_using_deterministic_fallback",
+            llm_provider=resolved.llm_provider,
+            app_env=resolved.app_env,
         )
     return DeterministicGroundedBriefingGenerator()

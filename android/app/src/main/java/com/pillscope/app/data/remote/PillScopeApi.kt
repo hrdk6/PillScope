@@ -7,6 +7,7 @@ import com.pillscope.app.data.remote.dto.DrugResolveResponseDto
 import com.pillscope.app.data.remote.dto.DuplicateCheckRequestDto
 import com.pillscope.app.data.remote.dto.DuplicateCheckResponseDto
 import com.pillscope.app.data.remote.dto.LoginRequestDto
+import com.pillscope.app.data.remote.dto.LogoutRequestDto
 import com.pillscope.app.data.remote.dto.MedicationCreateRequestDto
 import com.pillscope.app.data.remote.dto.MedicationCreateResponseDto
 import com.pillscope.app.data.remote.dto.MedicationResponseDto
@@ -41,8 +42,14 @@ interface PillScopeApi {
     @POST("api/v1/auth/refresh")
     suspend fun refresh(@Body body: RefreshRequestDto): TokenResponseDto
 
+    @POST("api/v1/auth/logout")
+    suspend fun logout(@Body body: LogoutRequestDto): Response<Unit>
+
     @GET("api/v1/auth/me")
     suspend fun getMe(): UserResponseDto
+
+    @DELETE("api/v1/auth/me")
+    suspend fun deleteMe(): Response<Unit>
 
     @GET("api/v1/profiles")
     suspend fun listProfiles(): List<ProfileResponseDto>

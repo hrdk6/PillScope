@@ -2,7 +2,9 @@ package com.pillscope.app.ui.cabinet
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pillscope.app.data.remote.ApiCallError
 import com.pillscope.app.data.remote.dto.AllergyAlertDto
+import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.dto.SaltComponentDto
@@ -14,11 +16,14 @@ import com.pillscope.app.data.repository.ScanRepository
 import com.pillscope.app.data.repository.ScheduleAndRecallRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -37,6 +42,11 @@ data class CabinetUiState(
     val lastDuplicateAlerts: List<DuplicateSaltAlertDto> = emptyList(),
     val lastAllergyAlerts: List<AllergyAlertDto> = emptyList(),
     val statusBanner: String? = null,
+    val statusIsError: Boolean = false,
+    val catalogSuggestions: List<BrandCandidateDto> = emptyList(),
+    val isSearchingCatalog: Boolean = false,
+    val selectedMedicationDetail: CabinetMedication? = null,
+    val isLoadingDetail: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,6 +106,25 @@ class CabinetViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CabinetUiState())
     val uiState: StateFlow<CabinetUiState> = _uiState.asStateFlow()
 
+    private var catalogSearchJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            profileRepository.selectedProfileId.collect {
+                customNodePositions.value = emptyMap()
+                selectedNodeId.value = null
+                selectedEdgeId.value = null
+                _uiState.update {
+                    it.copy(
+                        selectedMedicationDetail = null,
+                        lastDuplicateAlerts = emptyList(),
+                        lastAllergyAlerts = emptyList(),
+                    )
+                }
+            }
+        }
+    }
+
     fun setDisplayMode(mode: CabinetDisplayMode) {
         _uiState.update { it.copy(displayMode = mode) }
     }
@@ -112,35 +141,89 @@ class CabinetViewModel @Inject constructor(
 
     fun moveGraphNode(medicationId: String, normX: Float, normY: Float) {
         customNodePositions.update { current ->
-            current + (medicationId to (normX.coerceIn(0.14f, 0.86f) to normY.coerceIn(0.14f, 0.86f)))
+            current + (medicationId to (normX.coerceIn(0.12f, 0.88f) to normY.coerceIn(0.12f, 0.88f)))
         }
+    }
+
+    fun searchCatalog(query: String) {
+        catalogSearchJob?.cancel()
+        val trimmed = query.trim()
+        if (trimmed.length < 2) {
+            _uiState.update { it.copy(catalogSuggestions = emptyList(), isSearchingCatalog = false) }
+            return
+        }
+        catalogSearchJob = viewModelScope.launch {
+            delay(220L)
+            _uiState.update { it.copy(isSearchingCatalog = true) }
+            val result = cabinetRepository.searchDrugCatalog(trimmed)
+            _uiState.update {
+                it.copy(
+                    catalogSuggestions = result.getOrDefault(emptyList()),
+                    isSearchingCatalog = false,
+                )
+            }
+        }
+    }
+
+    fun clearCatalogSuggestions() {
+        catalogSearchJob?.cancel()
+        _uiState.update { it.copy(catalogSuggestions = emptyList(), isSearchingCatalog = false) }
+    }
+
+    fun openMedicationDetail(medicationId: String) {
+        val localMatch = medications.value.firstOrNull { it.id == medicationId }
+        _uiState.update {
+            it.copy(selectedMedicationDetail = localMatch, isLoadingDetail = true)
+        }
+        viewModelScope.launch {
+            val profileId = profileRepository.selectedProfileId.value
+            val detailed = cabinetRepository.fetchMedicationDetail(medicationId, profileId)
+            _uiState.update {
+                it.copy(
+                    selectedMedicationDetail = detailed ?: localMatch,
+                    isLoadingDetail = false,
+                )
+            }
+        }
+    }
+
+    fun closeMedicationDetail() {
+        _uiState.update { it.copy(selectedMedicationDetail = null, isLoadingDetail = false) }
     }
 
     fun syncCabinet() {
         val profileId = profileRepository.selectedProfileId.value
         viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true, statusBanner = null) }
+            _uiState.update { it.copy(isSyncing = true, statusBanner = null, statusIsError = false) }
             val report = cabinetRepository.syncWithBackend(profileId)
-            scheduleAndRecallRepository.refreshRecalls(profileId)
-            scheduleAndRecallRepository.refreshSchedule(profileId)
+            scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
+            scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
             scanRepository.syncRecentScansForProfile(profileId)
 
-            val msg = if (report.isSuccess) {
-                "Synced (${report.pulledCount} medications up to date)"
-            } else {
-                "Offline mode, local changes queued for next sync"
+            val (msg, isError) = when {
+                report.isSuccess -> "Synced (${report.pulledCount} medications up to date)" to false
+                report.error is ApiCallError.Offline ->
+                    "Offline mode — local changes queued for next sync" to false
+                report.error != null -> report.error.userMessage to true
+                else -> "Some cabinet changes could not sync; will retry." to true
             }
             _uiState.update {
                 it.copy(
                     isSyncing = false,
                     lastSyncReport = report,
                     statusBanner = msg,
+                    statusIsError = isError,
                 )
             }
         }
     }
 
-    fun addMedication(displayName: String, rawSaltsCsv: String, dosageSchedule: String?) {
+    fun addMedication(
+        displayName: String,
+        rawSaltsCsv: String,
+        dosageSchedule: String?,
+        brandMappingId: String? = null,
+    ) {
         val salts = rawSaltsCsv
             .split(",", "+")
             .map { it.trim() }
@@ -148,38 +231,114 @@ class CabinetViewModel @Inject constructor(
             .map { SaltComponentDto(canonicalSalt = it.lowercase()) }
         if (displayName.isBlank() || salts.isEmpty()) return
 
+        addMedicationInternal(
+            displayName = displayName,
+            salts = salts,
+            dosageSchedule = dosageSchedule,
+            brandMappingId = brandMappingId,
+        )
+    }
+
+    fun addMedicationFromScan(
+        displayName: String,
+        canonicalSalts: List<String>,
+        dosageSchedule: String? = null,
+    ) {
+        val salts = canonicalSalts
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .map { SaltComponentDto(canonicalSalt = it) }
+        if (displayName.isBlank() || salts.isEmpty()) return
+
+        addMedicationInternal(
+            displayName = displayName,
+            salts = salts,
+            dosageSchedule = dosageSchedule,
+            brandMappingId = null,
+        )
+    }
+
+    private fun addMedicationInternal(
+        displayName: String,
+        salts: List<SaltComponentDto>,
+        dosageSchedule: String?,
+        brandMappingId: String?,
+    ) {
         val profileId = profileRepository.selectedProfileId.value
         viewModelScope.launch {
+            val activeAllergies = profileRepository.observeActiveProfile().first().allergyEntries
             val result = cabinetRepository.addMedicationOfflineFirst(
                 displayName = displayName,
                 genericSalts = salts,
+                brandMappingId = brandMappingId,
                 dosageSchedule = dosageSchedule,
                 profileId = profileId,
+                profileAllergies = activeAllergies,
             )
-            val banner = if (result.syncedWithServer) {
-                "Added ${result.medication.displayName}"
-            } else {
-                "Saved ${result.medication.displayName} offline (pending sync)"
+            if (result.syncedWithServer) {
+                scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
+                scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
+            }
+            val (banner, isError) = when {
+                result.syncedWithServer -> "Added ${result.medication.displayName}" to false
+                result.apiError is ApiCallError.Offline ->
+                    "Saved ${result.medication.displayName} offline (pending sync)" to false
+                result.apiError != null ->
+                    "Saved locally (${result.apiError.userMessage})" to true
+                else -> "Saved ${result.medication.displayName} offline (pending sync)" to false
             }
             _uiState.update {
                 it.copy(
                     lastDuplicateAlerts = result.localDuplicateAlerts,
                     lastAllergyAlerts = result.allergyAlerts,
                     statusBanner = banner,
+                    statusIsError = isError,
                 )
             }
         }
     }
 
     fun toggleActive(id: String, active: Boolean) {
+        val profileId = profileRepository.selectedProfileId.value
         viewModelScope.launch {
-            cabinetRepository.toggleMedicationActive(id, active)
+            val activeAllergies = profileRepository.observeActiveProfile().first().allergyEntries
+            val result = cabinetRepository.toggleMedicationActiveDetailed(
+                id = id,
+                isActive = active,
+                profileAllergies = activeAllergies,
+            )
+            if (result.syncedWithServer) {
+                scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
+                scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
+            }
+            val errBanner = result.apiError?.takeIf { it !is ApiCallError.Offline }?.userMessage
+            _uiState.update { state ->
+                state.copy(
+                    lastDuplicateAlerts = if (active) result.duplicateAlerts else state.lastDuplicateAlerts,
+                    lastAllergyAlerts = if (active) result.allergyAlerts else state.lastAllergyAlerts,
+                    statusBanner = errBanner ?: state.statusBanner,
+                    statusIsError = errBanner != null,
+                )
+            }
         }
     }
 
     fun deleteMedication(id: String) {
+        val profileId = profileRepository.selectedProfileId.value
         viewModelScope.launch {
-            cabinetRepository.deleteMedication(id)
+            val result = cabinetRepository.deleteMedicationDetailed(id)
+            if (result.syncedWithServer) {
+                scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
+                scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
+            }
+            if (selectedNodeId.value == id) selectedNodeId.value = null
+            if (_uiState.value.selectedMedicationDetail?.id == id) {
+                _uiState.update { it.copy(selectedMedicationDetail = null) }
+            }
+            result.apiError?.takeIf { it !is ApiCallError.Offline }?.let { err ->
+                _uiState.update { it.copy(statusBanner = err.userMessage, statusIsError = true) }
+            }
         }
     }
 }

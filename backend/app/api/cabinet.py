@@ -77,9 +77,7 @@ async def _hydrate_medications(
     if not medications:
         return []
 
-    all_salts = canonical_salt_keys(
-        salt for med in medications for salt in med.canonical_salt_keys
-    )
+    all_salts = canonical_salt_keys(salt for med in medications for salt in med.canonical_salt_keys)
     triggers_by_salt = await extract_lifestyle_triggers_by_salt(session, all_salts)
     recalls_by_med, _ = await match_active_recalls_for_medications(session, medications)
 
@@ -106,6 +104,8 @@ async def list_medications(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     profile_id: UUID | None = Query(default=None),
     active_only: bool = Query(default=True),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> list[MedicationResponse]:
     profile = await resolve_user_profile(
         session=session,
@@ -118,7 +118,7 @@ async def list_medications(
     )
     if active_only:
         stmt = stmt.where(Medication.is_active.is_(True))
-    stmt = stmt.order_by(Medication.created_at.desc())
+    stmt = stmt.order_by(Medication.created_at.desc()).limit(limit).offset(offset)
 
     rows = list((await session.execute(stmt)).scalars().all())
     return await _hydrate_medications(session, rows)
@@ -186,9 +186,14 @@ async def create_medication(
         if body.display_name
         else (mapping.brand_name if mapping is not None else "")
     )
+    if not display_name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A non-blank display_name is required.",
+        )
     raw_salts = (
         body.generic_salts
-        if body.generic_salts is not None
+        if body.generic_salts
         else [SaltComponent.model_validate(s) for s in (mapping.generic_salts if mapping else [])]
     )
     normalized_salts = _normalize_salt_components(raw_salts)
@@ -260,6 +265,7 @@ async def update_medication(
             detail="Medication not found.",
         )
 
+    was_active = medication.is_active
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
         if value is None and field in {"display_name", "is_active"}:
@@ -268,9 +274,35 @@ async def update_medication(
             value = value.strip()
         setattr(medication, field, value)
 
+    reactivating = (not was_active) and bool(medication.is_active)
+    reactivation_safety = None
+    if reactivating:
+        med_profile = await resolve_user_profile(
+            session=session,
+            user_id=current_user.id,
+            profile_id=medication.profile_id,
+        )
+        reactivation_safety = await evaluate_duplicate_safety(
+            session=session,
+            user_id=current_user.id,
+            profile_id=med_profile.id,
+            candidate_salts=medication.canonical_salt_keys,
+            exclude_medication_id=medication.id,
+            allergies_json=med_profile.allergies_json,
+        )
+
     await session.commit()
     await session.refresh(medication)
-    return (await _hydrate_medications(session, [medication]))[0]
+    hydrated = (await _hydrate_medications(session, [medication]))[0]
+    if reactivation_safety is not None:
+        hydrated = hydrated.model_copy(
+            update={
+                "safety_banner_locked": reactivation_safety.safety_banner_locked,
+                "duplicate_salts": reactivation_safety.duplicate_salts,
+                "allergy_alerts": reactivation_safety.allergy_alerts,
+            }
+        )
+    return hydrated
 
 
 @router.delete("/medications/{medication_id}", status_code=status.HTTP_204_NO_CONTENT)

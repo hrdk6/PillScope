@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.PillScope" parent="android:Theme.Material.NoActionBar" />
+</resources>

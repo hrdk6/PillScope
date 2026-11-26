@@ -144,6 +144,10 @@ _SEDATING_SALTS: frozenset[str] = frozenset(
         "clonazepam",
         "temazepam",
         "nitrazepam",
+    }
+)
+_EVENING_OPTIMAL_SALTS: frozenset[str] = frozenset(
+    {
         "montelukast",
         "simvastatin",
         "lovastatin",
@@ -232,8 +236,26 @@ _EMPTY_STOMACH_SALTS: frozenset[str] = frozenset(
     }
 )
 
-_BID_RE = re.compile(r"\b(?:bid|b\.i\.d\.|twice\s+daily|2\s*x\s*daily|bd)\b", re.IGNORECASE)
-_TID_RE = re.compile(r"\b(?:tid|t\.i\.d\.|three\s+times\s+daily|3\s*x\s*daily|tds)\b", re.I)
+_QID_RE = re.compile(
+    r"\b(?:qid|q\.i\.d\.|four\s+times\s+daily|4\s*x\s*daily|qds|every\s+6\s*(?:h|hr|hrs|hours)|q6h)\b",
+    re.IGNORECASE,
+)
+_TID_RE = re.compile(
+    r"\b(?:tid|t\.i\.d\.|three\s+times\s+daily|3\s*x\s*daily|tds|every\s+8\s*(?:h|hr|hrs|hours)|q8h)\b",
+    re.IGNORECASE,
+)
+_BID_RE = re.compile(
+    r"\b(?:bid|b\.i\.d\.|twice\s+daily|2\s*x\s*daily|bd|every\s+12\s*(?:h|hr|hrs|hours)|q12h)\b",
+    re.IGNORECASE,
+)
+_WEEKLY_RE = re.compile(
+    r"\b(?:weekly|once\s+(?:a\s+)?week|every\s+week|qwk|q7d)\b",
+    re.IGNORECASE,
+)
+_ALTERNATE_DAY_RE = re.compile(
+    r"\b(?:every\s+other\s+day|alternate\s+days?|qod)\b",
+    re.IGNORECASE,
+)
 _BEDTIME_RE = re.compile(r"\b(?:hs|qhs|bedtime|at\s+night|nocte)\b", re.IGNORECASE)
 _MORNING_RE = re.compile(r"\b(?:qam|morning|in\s+the\s+morning|mane)\b", re.IGNORECASE)
 _EMPTY_RE = re.compile(r"\b(?:empty\s+stomach|before\s+(?:breakfast|food|meals)|ac)\b", re.I)
@@ -266,6 +288,7 @@ class _DoseNode:
     total_daily_doses: int
     tags: frozenset[str]
     slot_costs: tuple[int, int, int, int, int]
+    frequency_note: str | None = None
     rationale: list[str] = field(default_factory=list)
 
 
@@ -308,6 +331,8 @@ def _classify_tags(salts: Sequence[str]) -> frozenset[str]:
             tags.add("PPI")
         if salt in _SEDATING_SALTS:
             tags.add("SEDATING")
+        if salt in _EVENING_OPTIMAL_SALTS:
+            tags.add("EVENING_OPTIMAL")
         if salt in _DIURETIC_SALTS:
             tags.add("DIURETIC")
         if salt in _STIMULANT_SALTS:
@@ -322,11 +347,30 @@ def _classify_tags(salts: Sequence[str]) -> frozenset[str]:
 def _parse_daily_doses(dosage_schedule: str | None) -> int:
     if not dosage_schedule:
         return 1
+    if _WEEKLY_RE.search(dosage_schedule) or _ALTERNATE_DAY_RE.search(dosage_schedule):
+        return 1
+    if _QID_RE.search(dosage_schedule):
+        return 4
     if _TID_RE.search(dosage_schedule):
         return 3
     if _BID_RE.search(dosage_schedule):
         return 2
     return 1
+
+
+def _detect_frequency_note(dosage_schedule: str | None) -> str | None:
+    if not dosage_schedule:
+        return None
+    if _WEEKLY_RE.search(dosage_schedule):
+        return (
+            f"Weekly regimen ({dosage_schedule.strip()}): take once per week on your chosen "
+            "dosing day, not daily."
+        )
+    if _ALTERNATE_DAY_RE.search(dosage_schedule):
+        return (
+            f"Alternate-day regimen ({dosage_schedule.strip()}): take every other day, not daily."
+        )
+    return None
 
 
 def _compute_slot_costs_and_rationale(
@@ -360,7 +404,19 @@ def _compute_slot_costs_and_rationale(
         costs[2] += 45
         costs[3] += 10
         costs[4] = max(costs[4] - 32, 0)
-        rationale.append("Sedating or evening-optimal medication biased toward Bedtime.")
+        rationale.append(
+            "Sedating medication biased toward Bedtime to minimize daytime drowsiness."
+        )
+    elif "EVENING_OPTIMAL" in tags:
+        costs[0] += 55
+        costs[1] += 45
+        costs[2] += 30
+        costs[3] += 8
+        costs[4] = max(costs[4] - 28, 0)
+        rationale.append(
+            "Evening-optimal medication (aligned with nighttime pharmacodynamics) "
+            "biased toward Bedtime."
+        )
 
     if "DIURETIC" in tags:
         costs[0] += 8
@@ -455,6 +511,15 @@ def _compute_slot_costs_and_rationale(
         for idx in range(5):
             if idx != preferred:
                 costs[idx] += 18
+    elif total_doses == 4:
+        preferred = (1, 2, 3, 4)[dose_number - 1]
+        for idx in range(5):
+            if idx != preferred:
+                costs[idx] += 18
+
+    freq_note = _detect_frequency_note(med.dosage_schedule)
+    if freq_note:
+        rationale.insert(0, freq_note)
 
     if not rationale:
         rationale.append("Standard daily schedule slot selected with no absorption conflicts.")
@@ -692,17 +757,19 @@ def _solve_assignment(
                 slot_min = slot_minutes[slot_idx]
                 for neighbor_idx, min_sep in adj[node_idx]:
                     neighbor_slot = current[neighbor_idx]
-                    if neighbor_slot != -1 and circular_gap_minutes(
-                        slot_min, slot_minutes[neighbor_slot]
-                    ) < min_sep:
+                    if (
+                        neighbor_slot != -1
+                        and circular_gap_minutes(slot_min, slot_minutes[neighbor_slot]) < min_sep
+                    ):
                         added_violations += 1
                 next_violations = cur_violations + added_violations
                 next_cost = cur_cost + node.slot_costs[slot_idx]
                 if next_violations > best_score[0]:
                     continue
-                if next_violations == best_score[0] and (
-                    next_cost + min_remaining_cost[pos + 1]
-                ) >= best_score[1]:
+                if (
+                    next_violations == best_score[0]
+                    and (next_cost + min_remaining_cost[pos + 1]) >= best_score[1]
+                ):
                     continue
                 current[node_idx] = slot_idx
                 _backtrack(pos + 1, next_violations, next_cost)
@@ -721,9 +788,10 @@ def _solve_assignment(
             slot_min = slot_minutes[slot_idx]
             for neighbor_idx, min_sep in adj[node_idx]:
                 neighbor_slot = assignment[neighbor_idx]
-                if neighbor_slot != -1 and circular_gap_minutes(
-                    slot_min, slot_minutes[neighbor_slot]
-                ) < min_sep:
+                if (
+                    neighbor_slot != -1
+                    and circular_gap_minutes(slot_min, slot_minutes[neighbor_slot]) < min_sep
+                ):
                     violations += 1
             score = (violations, node.slot_costs[slot_idx], slot_idx)
             if score < best_local:
@@ -787,6 +855,7 @@ def solve_daily_schedule(
         tags = _classify_tags(med.canonical_salt_keys)
         tags_by_med[med.medication_id] = tags
         total_doses = _parse_daily_doses(med.dosage_schedule)
+        freq_note = _detect_frequency_note(med.dosage_schedule)
         for dose_num in range(1, total_doses + 1):
             costs, rationale = _compute_slot_costs_and_rationale(med, tags, dose_num, total_doses)
             idx = len(nodes)
@@ -798,6 +867,7 @@ def solve_daily_schedule(
                     total_daily_doses=total_doses,
                     tags=tags,
                     slot_costs=costs,
+                    frequency_note=freq_note,
                     rationale=rationale,
                 )
             )
@@ -819,16 +889,22 @@ def solve_daily_schedule(
                 )
             )
         elif len(node_indices) >= 3:
+            min_gap = 180 if len(node_indices) >= 4 else 240
+            spacing_reason = (
+                "Four-times-daily doses spaced across the day."
+                if len(node_indices) >= 4
+                else "Three-times-daily doses spaced across the day."
+            )
             for i in range(len(node_indices)):
                 for j in range(i + 1, len(node_indices)):
                     constraints.append(
                         _PairwiseConstraint(
                             node_a=node_indices[i],
                             node_b=node_indices[j],
-                            min_minutes=240,
+                            min_minutes=min_gap,
                             salt_a=med.canonical_salt_keys[0] if med.canonical_salt_keys else "",
                             salt_b=med.canonical_salt_keys[0] if med.canonical_salt_keys else "",
-                            reason="Three-times-daily doses spaced across the day.",
+                            reason=spacing_reason,
                             same_medication=True,
                         )
                     )
@@ -1025,6 +1101,7 @@ def solve_daily_schedule(
                 recommended_time=rec_time,
                 dose_number=node.dose_number,
                 total_daily_doses=node.total_daily_doses,
+                frequency_note=node.frequency_note,
                 rationale=node.rationale,
                 separation_notes=separation_notes_by_node[idx],
             )
@@ -1077,9 +1154,7 @@ async def build_profile_schedule(
         .all()
     )
 
-    all_salts = canonical_salt_keys(
-        salt for med in med_rows for salt in med.canonical_salt_keys
-    )
+    all_salts = canonical_salt_keys(salt for med in med_rows for salt in med.canonical_salt_keys)
     triggers_by_salt = await extract_lifestyle_triggers_by_salt(session, all_salts)
 
     major_pairs: list[MajorDdiRecord] = []

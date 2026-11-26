@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_current_user
@@ -30,12 +31,16 @@ router = APIRouter(prefix="/api/v1/profiles", tags=["profiles"])
 async def list_profiles(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> list[ProfileResponse]:
     await ensure_user_default_profile(session=session, user_id=current_user.id)
     stmt = (
         select(Profile)
         .where(Profile.user_id == current_user.id)
         .order_by(Profile.is_default.desc(), Profile.created_at.asc())
+        .limit(limit)
+        .offset(offset)
     )
     rows = list((await session.execute(stmt)).scalars().all())
     return [ProfileResponse.model_validate(row) for row in rows]
@@ -71,7 +76,14 @@ async def create_profile(
         is_default=should_be_default,
     )
     session.add(profile)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Concurrent default profile update conflict; please retry.",
+        ) from exc
     await session.refresh(profile)
     return ProfileResponse.model_validate(profile)
 
@@ -133,7 +145,14 @@ async def update_profile(
             continue
         setattr(profile, field, value)
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Concurrent default profile update conflict; please retry.",
+        ) from exc
     await session.refresh(profile)
     return ProfileResponse.model_validate(profile)
 
@@ -180,10 +199,15 @@ async def list_profile_recalls(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     active_only: bool = Query(default=True),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> ProfileRecallsResponse:
     profile = await resolve_user_profile(
         session=session,
         user_id=current_user.id,
         profile_id=profile_id,
     )
-    return await get_profile_recalls(session=session, profile=profile, active_only=active_only)
+    resp = await get_profile_recalls(session=session, profile=profile, active_only=active_only)
+    if offset > 0 or len(resp.recalls) > limit:
+        resp = resp.model_copy(update={"recalls": resp.recalls[offset : offset + limit]})
+    return resp

@@ -15,6 +15,7 @@ class MedicineLabelAnalyzer(
     private val ocrEngine: MlKitOcrEngine,
     private val scope: CoroutineScope,
     private val minIntervalMs: Long = 350L,
+    private val forceNextOcr: AtomicBoolean = AtomicBoolean(false),
     private val onResult: (CameraPipelineResult) -> Unit,
 ) : ImageAnalysis.Analyzer {
     private val isProcessing = AtomicBoolean(false)
@@ -59,7 +60,8 @@ class MedicineLabelAnalyzer(
         scope.launch(Dispatchers.Default) {
             try {
                 val quality = preprocessor.analyzeFrame(uprightBitmap)
-                if (!quality.isAcceptable) {
+                val forced = forceNextOcr.getAndSet(false)
+                if (!quality.isAcceptable && !forced) {
                     onResult(
                         CameraPipelineResult(
                             quality = quality,
@@ -71,11 +73,16 @@ class MedicineLabelAnalyzer(
                     return@launch
                 }
 
-                val cropped = preprocessor.cropToLabel(uprightBitmap, quality.cropBox)
+                val effectiveCropBox = if (forced) {
+                    NormalizedCropRect(0f, 0f, 1f, 1f)
+                } else {
+                    quality.cropBox
+                }
+                val cropped = preprocessor.cropToLabel(uprightBitmap, effectiveCropBox)
                 val ocrResult = try {
                     ocrEngine.recognizeTextWithBlocks(
                         bitmap = cropped,
-                        parentCropBox = quality.cropBox,
+                        parentCropBox = effectiveCropBox,
                     )
                 } finally {
                     if (cropped !== uprightBitmap) {
@@ -87,7 +94,7 @@ class MedicineLabelAnalyzer(
                 val brandGuess = OnDeviceSaltChipExtractor.extractPrimaryBrandGuess(ocrResult.rawText)
                 onResult(
                     CameraPipelineResult(
-                        quality = quality,
+                        quality = if (forced) quality.copy(isAcceptable = true) else quality,
                         rawOcrText = ocrResult.rawText,
                         localSaltChips = chips,
                         primaryBrandGuess = brandGuess,

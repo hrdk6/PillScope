@@ -31,14 +31,24 @@ WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./
-COPY backend ./backend
-COPY ml ./ml
-COPY eval ./eval
-RUN mkdir -p /app/data/cache /home/appuser/.cache/huggingface \
+COPY backend/__init__.py ./backend/__init__.py
+COPY backend/app ./backend/app
+COPY backend/scripts ./backend/scripts
+COPY ml/__init__.py ./ml/__init__.py
+COPY ml/ddi ./ml/ddi
+COPY ml/artifacts ./ml/artifacts
+COPY eval/__init__.py ./eval/__init__.py
+COPY eval/tracing ./eval/tracing
+COPY infra/docker/entrypoint.sh /app/entrypoint.sh
+
+RUN sed -i 's/\r$//' /app/entrypoint.sh \
+    && chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/data/cache /home/appuser/.cache/huggingface \
     && chown -R appuser:appuser /app/data /home/appuser/.cache
 
 USER appuser
 
 EXPOSE 8000
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -22,6 +22,18 @@ from backend.app.services.recall_watchdog import (
 logger = structlog.get_logger(__name__)
 
 
+def _validate_ingest_path(raw_path: str, settings: Settings) -> Path:
+    resolved = Path(raw_path).resolve()
+    if settings.app_env == "test":
+        return resolved
+    allowed_root = Path(settings.allowed_ingest_dir).resolve()
+    if not resolved.is_relative_to(allowed_root):
+        raise ValueError(
+            f"Ingestion file path must reside inside allowed directory '{allowed_root}'."
+        )
+    return resolved
+
+
 def _read_json_records(json_path: Path) -> list[dict[str, Any]]:
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     if isinstance(payload, dict) and isinstance(payload.get("results"), list):
@@ -73,7 +85,8 @@ async def ingest_monographs_from_file_job(
         settings
     )
 
-    records = await asyncio.to_thread(_read_json_records, Path(json_path_str))
+    safe_path = _validate_ingest_path(json_path_str, settings)
+    records = await asyncio.to_thread(_read_json_records, safe_path)
     total_chunks = 0
     labels_processed = 0
 
@@ -143,6 +156,32 @@ async def sync_fda_recalls_job(
     }
 
 
+async def sync_terminated_recalls_job(
+    ctx: dict[str, Any],
+    max_pages: int = 3,
+    page_size: int = 100,
+) -> dict[str, Any]:
+    """Reconcile recently Terminated/Completed FDA recalls so ended alerts stop flagging."""
+    total_upserted = 0
+    total_read = 0
+    warnings: list[str] = []
+    for status_label in ("Terminated", "Completed"):
+        res = await sync_fda_recalls_job(
+            ctx,
+            max_pages=max_pages,
+            page_size=page_size,
+            status_filter=status_label,
+        )
+        total_upserted += int(res["records_upserted"])
+        total_read += int(res["records_read"])
+        warnings.extend(res["warnings"])
+    return {
+        "records_read": total_read,
+        "records_upserted": total_upserted,
+        "warnings": warnings,
+    }
+
+
 async def ingest_fda_recalls_from_file_job(
     ctx: dict[str, Any],
     json_path_str: str,
@@ -150,10 +189,11 @@ async def ingest_fda_recalls_from_file_job(
     session_factory: async_sessionmaker[AsyncSession] = ctx["session_factory"]
     settings: Settings = ctx.get("settings") or get_settings()
 
+    safe_path = _validate_ingest_path(json_path_str, settings)
     async with session_factory() as session:
         result = await ingest_recalls_from_file(
             session=session,
-            json_path=Path(json_path_str),
+            json_path=safe_path,
             enforcement_base_url=settings.openfda_enforcement_url,
         )
 

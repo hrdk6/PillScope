@@ -12,6 +12,7 @@ import com.pillscope.app.data.local.entity.CachedLifestyleTriggerEntity
 import com.pillscope.app.data.local.entity.CachedRecallAlertEntity
 import com.pillscope.app.data.local.entity.DefaultProfileIds
 import com.pillscope.app.data.local.entity.ProfileEntity
+import com.pillscope.app.data.local.entity.SyncStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -115,7 +116,7 @@ class RoomMigrationTest {
         v1Helper.close()
 
         val migratedDb = Room.databaseBuilder(context, PillScopeDatabase::class.java, dbName)
-            .addMigrations(PillScopeDatabase.MIGRATION_1_2)
+            .addMigrations(PillScopeDatabase.MIGRATION_1_2, PillScopeDatabase.MIGRATION_2_3)
             .allowMainThreadQueries()
             .build()
 
@@ -124,6 +125,7 @@ class RoomMigrationTest {
             assertNotNull(defaultProfile)
             assertEquals(DefaultProfileIds.LOCAL_DEFAULT, defaultProfile!!.id)
             assertTrue(defaultProfile.isDefault)
+            assertEquals(SyncStatus.SYNCED, defaultProfile.syncStatus)
 
             val preservedMed = migratedDb.medicationDao().getById("med-v1-1")
             assertNotNull(preservedMed)
@@ -139,6 +141,7 @@ class RoomMigrationTest {
             assertTrue(preservedScan.persisted)
             assertEquals("[]", preservedScan.allergyAlertsJson)
             assertEquals("[]", preservedScan.lifestyleTriggersJson)
+            assertEquals("[]", preservedScan.activeRecallsJson)
 
             migratedDb.profileDao().upsert(
                 ProfileEntity(

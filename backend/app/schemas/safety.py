@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from backend.app.schemas.cabinet import DuplicateSaltAlert, RiskLevel
 from backend.app.schemas.lifestyle import LifestyleTrigger
 from backend.app.schemas.profiles import AllergyAlert
+from backend.app.schemas.recalls import MedicationRecallFlag
 
 InputMode = Literal["CAMERA_OCR", "MANUAL_TEXT", "BARCODE"]
 InteractionSource = Literal["deterministic_db", "ml_model", "hybrid"]
@@ -23,14 +24,21 @@ class ScanAnalyzeRequest(BaseModel):
     persist: bool = True
     input_mode: InputMode = "MANUAL_TEXT"
     submitted_query: str = Field(min_length=1, max_length=255)
-    confirmed_salts: list[str] | None = None
+    confirmed_salts: list[str] | None = Field(default=None, max_length=20)
     raw_ocr_text: str | None = Field(default=None, max_length=2000)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
     edge_quality_metrics: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_query(self) -> "ScanAnalyzeRequest":
         if not self.submitted_query.strip():
             raise ValueError("submitted_query cannot be blank.")
+        if self.confirmed_salts is not None:
+            for item in self.confirmed_salts:
+                if len(item) > 160:
+                    raise ValueError("confirmed_salts entries must be <= 160 characters.")
+        if self.edge_quality_metrics is not None and len(self.edge_quality_metrics) > 16:
+            raise ValueError("edge_quality_metrics cannot contain more than 16 keys.")
         return self
 
 
@@ -95,6 +103,7 @@ class DeterministicSafetyEvent(BaseModel):
     duplicate_salts: list[DuplicateSaltAlert]
     allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
     deterministic_alerts: list[DeterministicDdiAlert]
+    active_recalls: list[MedicationRecallFlag] = Field(default_factory=list)
 
 
 class InteractionsEvent(BaseModel):
@@ -133,6 +142,7 @@ class ScanCompleteEvent(BaseModel):
     duplicate_salts: list[DuplicateSaltAlert]
     allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
     lifestyle_triggers: list[LifestyleTrigger] = Field(default_factory=list)
+    active_recalls: list[MedicationRecallFlag] = Field(default_factory=list)
     interactions: list[InteractionItem]
     clinical_summary: ClinicalSummary
     citations: list[MonographCitation]

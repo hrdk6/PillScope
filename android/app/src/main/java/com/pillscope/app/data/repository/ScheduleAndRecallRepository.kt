@@ -1,19 +1,72 @@
 package com.pillscope.app.data.repository
 
+import android.content.Context
 import com.pillscope.app.data.local.dao.DoseScheduleDao
 import com.pillscope.app.data.local.dao.RecallAlertDao
 import com.pillscope.app.data.local.entity.CachedDoseScheduleEntity
 import com.pillscope.app.data.local.entity.CachedRecallAlertEntity
+import com.pillscope.app.data.local.entity.DefaultProfileIds
+import com.pillscope.app.data.remote.ApiCallError
 import com.pillscope.app.data.remote.PillScopeApi
 import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.dto.ProfileRecallsResponseDto
 import com.pillscope.app.data.remote.dto.ProfileScheduleResponseDto
+import com.pillscope.app.data.remote.toApiCallError
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
+
+data class ScheduleRefreshResult(
+    val schedule: ProfileScheduleResponseDto?,
+    val error: ApiCallError? = null,
+)
+
+data class RecallRefreshResult(
+    val recalls: ProfileRecallsResponseDto?,
+    val error: ApiCallError? = null,
+)
+
+@Singleton
+class DoseAdherenceStore @Inject constructor(
+    @ApplicationContext context: Context,
+) {
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val _takenKeys = MutableStateFlow(loadTodayKeys())
+    val takenKeys: StateFlow<Set<String>> = _takenKeys.asStateFlow()
+
+    fun doseKey(profileId: String, medicationId: String, slot: String, doseNumber: Int): String =
+        "${LocalDate.now()}:$profileId:$medicationId:$slot:$doseNumber"
+
+    fun toggleDoseTaken(profileId: String, medicationId: String, slot: String, doseNumber: Int) {
+        val key = doseKey(profileId, medicationId, slot, doseNumber)
+        val todayPrefix = "${LocalDate.now()}:"
+        val current = _takenKeys.value.filter { it.startsWith(todayPrefix) }.toMutableSet()
+        if (key in current) current.remove(key) else current.add(key)
+        prefs.edit().putStringSet(KEY_TAKEN_SET, current).apply()
+        _takenKeys.value = current
+    }
+
+    private fun loadTodayKeys(): Set<String> {
+        val todayPrefix = "${LocalDate.now()}:"
+        return prefs.getStringSet(KEY_TAKEN_SET, emptySet())
+            .orEmpty()
+            .filter { it.startsWith(todayPrefix) }
+            .toSet()
+    }
+
+    private companion object {
+        const val PREFS_NAME = "pillscope_dose_adherence"
+        const val KEY_TAKEN_SET = "taken_keys_v1"
+    }
+}
 
 @Singleton
 class ScheduleAndRecallRepository @Inject constructor(
@@ -22,6 +75,11 @@ class ScheduleAndRecallRepository @Inject constructor(
     private val api: PillScopeApi,
     private val json: Json,
 ) {
+    private fun isServerProfileId(profileId: String): Boolean =
+        profileId.isNotBlank() &&
+            !profileId.startsWith("local-") &&
+            profileId != DefaultProfileIds.LOCAL_DEFAULT
+
     fun observeSchedule(profileId: String): Flow<ProfileScheduleResponseDto?> =
         doseScheduleDao.observeForProfile(profileId).map { entity ->
             entity?.let {
@@ -31,24 +89,43 @@ class ScheduleAndRecallRepository @Inject constructor(
             }
         }
 
-    suspend fun refreshSchedule(profileId: String): ProfileScheduleResponseDto? {
-        val remote = runCatching { api.getProfileSchedule(profileId) }.getOrNull()
-        if (remote != null) {
-            doseScheduleDao.upsert(
-                CachedDoseScheduleEntity(
-                    profileId = profileId,
-                    profileName = remote.profileName,
-                    safetyBannerLocked = remote.safetyBannerLocked,
-                    scheduleJson = json.encodeToString(remote),
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                ),
+    suspend fun refreshSchedule(profileId: String): ProfileScheduleResponseDto? =
+        refreshScheduleDetailed(profileId).schedule
+
+    suspend fun refreshScheduleDetailed(profileId: String): ScheduleRefreshResult {
+        if (!isServerProfileId(profileId)) {
+            val cached = doseScheduleDao.getForProfile(profileId)?.let {
+                runCatching { json.decodeFromString<ProfileScheduleResponseDto>(it.scheduleJson) }.getOrNull()
+            }
+            return ScheduleRefreshResult(
+                schedule = cached,
+                error = ApiCallError.Offline("Sync your profile online to compute a personalized schedule."),
             )
-            return remote
         }
-        val cached = doseScheduleDao.getForProfile(profileId) ?: return null
-        return runCatching {
-            json.decodeFromString<ProfileScheduleResponseDto>(cached.scheduleJson)
-        }.getOrNull()
+
+        val remoteResult = runCatching { api.getProfileSchedule(profileId) }
+        return remoteResult.fold(
+            onSuccess = { remote ->
+                doseScheduleDao.upsert(
+                    CachedDoseScheduleEntity(
+                        profileId = profileId,
+                        profileName = remote.profileName,
+                        safetyBannerLocked = remote.safetyBannerLocked,
+                        scheduleJson = json.encodeToString(remote),
+                        updatedAtEpochMs = System.currentTimeMillis(),
+                    ),
+                )
+                ScheduleRefreshResult(schedule = remote)
+            },
+            onFailure = { exc ->
+                val cached = doseScheduleDao.getForProfile(profileId)?.let {
+                    runCatching {
+                        json.decodeFromString<ProfileScheduleResponseDto>(it.scheduleJson)
+                    }.getOrNull()
+                }
+                ScheduleRefreshResult(schedule = cached, error = exc.toApiCallError(json))
+            },
+        )
     }
 
     fun observeRecalls(profileId: String): Flow<List<ProfileRecallAlertItemDto>> =
@@ -77,35 +154,50 @@ class ScheduleAndRecallRepository @Inject constructor(
             }
         }
 
-    suspend fun refreshRecalls(profileId: String): ProfileRecallsResponseDto? {
-        val remote = runCatching { api.getProfileRecalls(profileId, activeOnly = true) }.getOrNull()
-            ?: return null
-        val now = System.currentTimeMillis()
-        recallAlertDao.clearForProfile(profileId)
-        val entities = remote.recalls.map { item ->
-            CachedRecallAlertEntity(
-                id = "$profileId:${item.matchedMedicationId}:${item.recallNumber}",
-                profileId = profileId,
-                recallId = item.recallId,
-                recallNumber = item.recallNumber,
-                alertLabel = item.alertLabel,
-                classification = item.classification,
-                status = item.status,
-                recallingFirm = item.recallingFirm,
-                productDescription = item.productDescription,
-                reasonForRecall = item.reasonForRecall,
-                reportDate = item.reportDate,
-                sourceUrl = item.sourceUrl,
-                matchedMedicationId = item.matchedMedicationId,
-                matchedMedicationName = item.matchedMedicationName,
-                matchBasis = item.matchBasis,
-                matchedTermsJson = json.encodeToString(item.matchedTerms),
-                updatedAtEpochMs = now,
+    suspend fun refreshRecalls(profileId: String): ProfileRecallsResponseDto? =
+        refreshRecallsDetailed(profileId).recalls
+
+    suspend fun refreshRecallsDetailed(profileId: String): RecallRefreshResult {
+        if (!isServerProfileId(profileId)) {
+            return RecallRefreshResult(
+                recalls = null,
+                error = ApiCallError.Offline("Sign in and sync online to check FDA recall alerts."),
             )
         }
-        if (entities.isNotEmpty()) {
-            recallAlertDao.upsertAll(entities)
-        }
-        return remote
+        val remoteResult = runCatching { api.getProfileRecalls(profileId, activeOnly = true) }
+        return remoteResult.fold(
+            onSuccess = { remote ->
+                val now = System.currentTimeMillis()
+                recallAlertDao.clearForProfile(profileId)
+                val entities = remote.recalls.map { item ->
+                    CachedRecallAlertEntity(
+                        id = "$profileId:${item.matchedMedicationId}:${item.recallNumber}",
+                        profileId = profileId,
+                        recallId = item.recallId,
+                        recallNumber = item.recallNumber,
+                        alertLabel = item.alertLabel,
+                        classification = item.classification,
+                        status = item.status,
+                        recallingFirm = item.recallingFirm,
+                        productDescription = item.productDescription,
+                        reasonForRecall = item.reasonForRecall,
+                        reportDate = item.reportDate,
+                        sourceUrl = item.sourceUrl,
+                        matchedMedicationId = item.matchedMedicationId,
+                        matchedMedicationName = item.matchedMedicationName,
+                        matchBasis = item.matchBasis,
+                        matchedTermsJson = json.encodeToString(item.matchedTerms),
+                        updatedAtEpochMs = now,
+                    )
+                }
+                if (entities.isNotEmpty()) {
+                    recallAlertDao.upsertAll(entities)
+                }
+                RecallRefreshResult(recalls = remote)
+            },
+            onFailure = { exc ->
+                RecallRefreshResult(recalls = null, error = exc.toApiCallError(json))
+            },
+        )
     }
 }

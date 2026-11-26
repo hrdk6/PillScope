@@ -27,6 +27,9 @@ interface ProfileDao {
     @Query("SELECT * FROM profiles WHERE is_default = 1 LIMIT 1")
     suspend fun getDefaultProfile(): ProfileEntity?
 
+    @Query("SELECT * FROM profiles WHERE sync_status != '${SyncStatus.SYNCED}'")
+    suspend fun getPendingSync(): List<ProfileEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ProfileEntity)
 
@@ -35,6 +38,9 @@ interface ProfileDao {
 
     @Query("DELETE FROM profiles WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM profiles WHERE sync_status = '${SyncStatus.SYNCED}'")
+    suspend fun clearSynced()
 
     @Query("DELETE FROM profiles")
     suspend fun clearAll()
@@ -103,6 +109,11 @@ interface MedicationDao {
     suspend fun clearSynced()
 
     @Query(
+        "UPDATE cabinet_medications SET profile_id = :toProfileId WHERE profile_id = :fromProfileId",
+    )
+    suspend fun reassignProfileId(fromProfileId: String, toProfileId: String)
+
+    @Query(
         "DELETE FROM cabinet_medications " +
             "WHERE profile_id = :profileId AND sync_status = '${SyncStatus.SYNCED}'",
     )
@@ -128,6 +139,11 @@ interface ScanReportDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: CachedScanReportEntity)
+
+    @Query(
+        "UPDATE cached_scan_reports SET profile_id = :toProfileId WHERE profile_id = :fromProfileId",
+    )
+    suspend fun reassignProfileId(fromProfileId: String, toProfileId: String)
 }
 
 @Dao

@@ -1,6 +1,7 @@
 from typing import Annotated, Any
 
 import redis.asyncio as aioredis
+import structlog
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.config import Settings, get_settings
 from backend.app.db.session import get_db_session
 
+logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["health"])
 
 
@@ -39,7 +41,8 @@ async def readyz(
         if not {"vector", "pg_trgm", "pgcrypto"}.issubset(set(extensions)):
             healthy = False
     except Exception as exc:
-        checks["postgres_error"] = str(exc)
+        logger.error("readyz_postgres_failed", error=str(exc))
+        checks["postgres_error"] = "unavailable"
         healthy = False
 
     redis_client = aioredis.Redis.from_url(
@@ -50,7 +53,8 @@ async def readyz(
     try:
         checks["redis"] = bool(await redis_client.ping())
     except Exception as exc:
-        checks["redis_error"] = str(exc)
+        logger.error("readyz_redis_failed", error=str(exc))
+        checks["redis_error"] = "unavailable"
         healthy = False
     finally:
         await redis_client.aclose()

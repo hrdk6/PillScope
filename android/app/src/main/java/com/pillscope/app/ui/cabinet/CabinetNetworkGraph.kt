@@ -7,11 +7,14 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,13 +23,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,27 +54,32 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CabinetNetworkGraph(
     graphState: CabinetGraphState,
     onSelectNode: (String?) -> Unit,
     onSelectEdge: (String?) -> Unit,
     onMoveNode: (medicationId: String, normX: Float, normY: Float) -> Unit,
+    onInspectMedication: ((medicationId: String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val palette = LocalPillScopePalette.current
     val textMeasurer = rememberTextMeasurer()
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var draggingNodeId by remember { mutableStateOf<String?>(null) }
@@ -196,14 +209,14 @@ fun CabinetNetworkGraph(
                             GraphEdgeSeverity.MAJOR -> {
                                 drawPath(
                                     path = path,
-                                    color = PillScopeColors.CriticalCrimson.copy(
+                                    color = palette.criticalCrimson.copy(
                                         alpha = 0.25f * pulseFraction * alphaScale,
                                     ),
                                     style = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round),
                                 )
                                 drawPath(
                                     path = path,
-                                    color = PillScopeColors.CriticalCrimson.copy(
+                                    color = palette.criticalCrimson.copy(
                                         alpha = pulseFraction * alphaScale,
                                     ),
                                     style = Stroke(width = 3.8.dp.toPx(), cap = StrokeCap.Round),
@@ -213,15 +226,23 @@ fun CabinetNetworkGraph(
                             GraphEdgeSeverity.MODERATE -> {
                                 drawPath(
                                     path = path,
-                                    color = PillScopeColors.ModerateAmber.copy(alpha = 0.9f * alphaScale),
+                                    color = palette.moderateAmber.copy(alpha = 0.9f * alphaScale),
                                     style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                                )
+                            }
+
+                            GraphEdgeSeverity.MINOR -> {
+                                drawPath(
+                                    path = path,
+                                    color = palette.minorBlue.copy(alpha = 0.82f * alphaScale),
+                                    style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
                                 )
                             }
 
                             GraphEdgeSeverity.SAFE -> {
                                 drawPath(
                                     path = path,
-                                    color = PillScopeColors.InkSecondary.copy(alpha = 0.35f * alphaScale),
+                                    color = palette.inkSecondary.copy(alpha = 0.35f * alphaScale),
                                     style = Stroke(
                                         width = 1.6.dp.toPx(),
                                         cap = StrokeCap.Round,
@@ -232,8 +253,8 @@ fun CabinetNetworkGraph(
                         }
                     }
 
-                    val pillWidth = 112.dp.toPx()
-                    val pillHeight = 46.dp.toPx()
+                    val pillWidth = if (graphState.nodes.size >= 7) 96.dp.toPx() else 112.dp.toPx()
+                    val pillHeight = 44.dp.toPx()
                     val cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f)
 
                     for (node in graphState.nodes) {
@@ -242,18 +263,18 @@ fun CabinetNetworkGraph(
                         val topLeft = Offset(cx - pillWidth / 2f, cy - pillHeight / 2f)
                         val isSelected = graphState.selectedNodeId == node.medicationId
                         val fillColor = if (isSelected) {
-                            PillScopeColors.ClinicalTealContainer
+                            palette.clinicalTealContainer
                         } else {
-                            PillScopeColors.CardSurface
+                            palette.cardSurface
                         }
                         val borderColor = when {
-                            isSelected -> PillScopeColors.ClinicalTeal
-                            node.hasActiveRecall -> PillScopeColors.CriticalCrimson
-                            else -> PillScopeColors.SlateBorder
+                            isSelected -> palette.clinicalTeal
+                            node.hasActiveRecall -> palette.criticalCrimson
+                            else -> palette.slateBorder
                         }
 
                         drawRoundRect(
-                            color = Color.Black.copy(alpha = 0.06f),
+                            color = Color.Black.copy(alpha = 0.08f),
                             topLeft = topLeft + Offset(0f, 3.dp.toPx()),
                             size = Size(pillWidth, pillHeight),
                             cornerRadius = cornerRadius,
@@ -272,28 +293,29 @@ fun CabinetNetworkGraph(
                             style = Stroke(width = if (isSelected) 2.5.dp.toPx() else 1.4.dp.toPx()),
                         )
 
+                        val maxTextW = (pillWidth - 18.dp.toPx()).toInt().coerceAtLeast(24)
                         val titleLayout = textMeasurer.measure(
                             text = node.displayName,
                             style = TextStyle(
-                                color = PillScopeColors.InkPrimary,
+                                color = palette.inkPrimary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            constraints = Constraints(maxWidth = (pillWidth - 20.dp.toPx()).toInt()),
+                            constraints = Constraints(maxWidth = maxTextW),
                         )
                         val saltText = node.canonicalSaltKeys.firstOrNull().orEmpty()
                         val saltLayout = textMeasurer.measure(
                             text = saltText,
                             style = TextStyle(
-                                color = PillScopeColors.ClinicalTeal,
+                                color = palette.clinicalTeal,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Medium,
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            constraints = Constraints(maxWidth = (pillWidth - 20.dp.toPx()).toInt()),
+                            constraints = Constraints(maxWidth = maxTextW),
                         )
 
                         val totalTextH = titleLayout.size.height + saltLayout.size.height
@@ -313,12 +335,12 @@ fun CabinetNetworkGraph(
                         if (node.hasActiveRecall) {
                             val dotCenter = Offset(topLeft.x + pillWidth - 8.dp.toPx(), topLeft.y + 6.dp.toPx())
                             drawCircle(
-                                color = PillScopeColors.CriticalCrimson.copy(alpha = 0.30f * pulseFraction),
+                                color = palette.criticalCrimson.copy(alpha = 0.30f * pulseFraction),
                                 radius = 9.dp.toPx(),
                                 center = dotCenter,
                             )
                             drawCircle(
-                                color = PillScopeColors.CriticalCrimson,
+                                color = palette.criticalCrimson,
                                 radius = 5.dp.toPx(),
                                 center = dotCenter,
                             )
@@ -328,16 +350,34 @@ fun CabinetNetworkGraph(
             }
         }
 
-        Row(
+        val selectedNode = graphState.selectedNodeId?.let { id ->
+            graphState.nodes.firstOrNull { it.medicationId == id }
+        }
+        if (selectedNode != null && onInspectMedication != null) {
+            OutlinedButton(
+                onClick = { onInspectMedication(selectedNode.medicationId) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "  View details for ${selectedNode.displayName}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+        }
+
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             GraphLegendBadge(color = PillScopeColors.CriticalCrimson, label = "Major")
             GraphLegendBadge(color = PillScopeColors.ModerateAmber, label = "Moderate")
+            GraphLegendBadge(color = PillScopeColors.MinorBlue, label = "Minor")
             GraphLegendBadge(color = PillScopeColors.InkSecondary.copy(alpha = 0.5f), label = "Safe")
             Text(
-                text = "Tap red/amber curve for details",
+                text = "Tap colored curve for details",
                 style = MaterialTheme.typography.labelSmall,
                 color = PillScopeColors.InkSecondary,
             )
@@ -388,15 +428,18 @@ private fun EdgeInteractionDetailSheet(
     edge: GraphEdge,
     modifier: Modifier = Modifier,
 ) {
-    val accent = if (edge.severity == GraphEdgeSeverity.MAJOR) {
-        PillScopeColors.CriticalCrimson
-    } else {
-        PillScopeColors.ModerateAmber
+    val uriHandler = LocalUriHandler.current
+    val accent = when (edge.severity) {
+        GraphEdgeSeverity.MAJOR -> PillScopeColors.CriticalCrimson
+        GraphEdgeSeverity.MODERATE -> PillScopeColors.ModerateAmber
+        GraphEdgeSeverity.MINOR -> PillScopeColors.MinorBlue
+        GraphEdgeSeverity.SAFE -> PillScopeColors.SafeEmerald
     }
-    val surfaceColor = if (edge.severity == GraphEdgeSeverity.MAJOR) {
-        PillScopeColors.CriticalCrimsonSurface
-    } else {
-        PillScopeColors.ModerateAmberSurface
+    val surfaceColor = when (edge.severity) {
+        GraphEdgeSeverity.MAJOR -> PillScopeColors.CriticalCrimsonSurface
+        GraphEdgeSeverity.MODERATE -> PillScopeColors.ModerateAmberSurface
+        GraphEdgeSeverity.MINOR -> PillScopeColors.MinorBlueSurface
+        GraphEdgeSeverity.SAFE -> PillScopeColors.SafeEmeraldSurface
     }
 
     Column(
@@ -501,11 +544,34 @@ private fun EdgeInteractionDetailSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.InkPrimary,
                 )
-                Text(
-                    text = citation.sourceUrl,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = PillScopeColors.MinorBlue,
-                )
+                val isWebUrl = citation.sourceUrl.startsWith("https://") ||
+                    citation.sourceUrl.startsWith("http://")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = if (isWebUrl) {
+                        Modifier.clickable { runCatching { uriHandler.openUri(citation.sourceUrl) } }
+                    } else {
+                        Modifier
+                    },
+                ) {
+                    Text(
+                        text = citation.sourceUrl,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            textDecoration = if (isWebUrl) TextDecoration.Underline else TextDecoration.None,
+                        ),
+                        color = PillScopeColors.MinorBlue,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (isWebUrl) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = "Open source link",
+                            tint = PillScopeColors.MinorBlue,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
             }
         }
     }

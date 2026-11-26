@@ -13,6 +13,7 @@ from backend.app.workers.tasks import (
     ingest_fda_recalls_from_file_job,
     ingest_monographs_from_file_job,
     sync_fda_recalls_job,
+    sync_terminated_recalls_job,
 )
 
 
@@ -41,13 +42,15 @@ class WorkerSettings:
         ingest_drug_monographs_job,
         ingest_monographs_from_file_job,
         sync_fda_recalls_job,
+        sync_terminated_recalls_job,
         ingest_fda_recalls_from_file_job,
     ]
     cron_jobs: ClassVar[list[Any]] = [
         cron(sync_fda_recalls_job, hour={0, 6, 12, 18}, minute=0),
+        cron(sync_terminated_recalls_job, hour={3, 15}, minute=30),
     ]
     on_startup = on_startup
     on_shutdown = on_shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
     max_jobs = 8
-    job_timeout = 300
+    job_timeout = 900

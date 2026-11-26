@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -6,7 +7,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import structlog
-from sqlalchemy import or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import Settings
@@ -14,6 +15,7 @@ from backend.app.db.models import BrandSaltMapping, DdiPair, Medication, Profile
 from backend.app.schemas.cabinet import RiskLevel
 from backend.app.schemas.drugs import DrugResolveRequest
 from backend.app.schemas.lifestyle import LifestyleTrigger
+from backend.app.schemas.recalls import MedicationRecallFlag
 from backend.app.schemas.safety import (
     CitationsEvent,
     ClinicalSummaryEvent,
@@ -49,6 +51,7 @@ from backend.app.services.drug_normalizer import canonical_salt_keys, parse_ocr_
 from backend.app.services.hybrid_rag import HybridRagRetriever
 from backend.app.services.lifestyle_triggers import extract_lifestyle_triggers_for_salts
 from backend.app.services.profiles import resolve_user_profile
+from backend.app.services.recall_watchdog import match_active_recalls_for_salts
 from eval.tracing.otel import current_trace_id_hex, traced_span
 from ml.ddi.data_prep import SmilesCacheStore, load_smiles_seed_csv
 from ml.ddi.schemas import DdiPrediction, DrugPairInput
@@ -70,22 +73,32 @@ async def _resolve_smiles_for_salts(
     smiles_map: dict[str, str] = {}
     salt_set = set(salts)
 
-    ddi_stmt = select(
-        DdiPair.salt_a,
-        DdiPair.salt_a_smiles,
-        DdiPair.salt_b,
-        DdiPair.salt_b_smiles,
-    ).where(or_(DdiPair.salt_a.in_(salts), DdiPair.salt_b.in_(salts)))
-    for salt_a, smi_a, salt_b, smi_b in (await session.execute(ddi_stmt)).all():
+    ddi_a_stmt = (
+        select(DdiPair.salt_a, func.min(DdiPair.salt_a_smiles))
+        .where(DdiPair.salt_a.in_(salts), DdiPair.salt_a_smiles.is_not(None))
+        .group_by(DdiPair.salt_a)
+    )
+    for salt_a, smi_a in (await session.execute(ddi_a_stmt)).all():
         if salt_a in salt_set and smi_a and salt_a not in smiles_map:
             smiles_map[salt_a] = smi_a
-        if salt_b in salt_set and smi_b and salt_b not in smiles_map:
-            smiles_map[salt_b] = smi_b
 
     missing = [s for s in salts if s not in smiles_map]
     if missing:
-        brand_stmt = select(BrandSaltMapping.smiles_map).where(
-            BrandSaltMapping.canonical_salt_keys.overlap(missing)
+        ddi_b_stmt = (
+            select(DdiPair.salt_b, func.min(DdiPair.salt_b_smiles))
+            .where(DdiPair.salt_b.in_(missing), DdiPair.salt_b_smiles.is_not(None))
+            .group_by(DdiPair.salt_b)
+        )
+        for salt_b, smi_b in (await session.execute(ddi_b_stmt)).all():
+            if salt_b in salt_set and smi_b and salt_b not in smiles_map:
+                smiles_map[salt_b] = smi_b
+
+    missing = [s for s in salts if s not in smiles_map]
+    if missing:
+        brand_stmt = (
+            select(BrandSaltMapping.smiles_map)
+            .where(BrandSaltMapping.canonical_salt_keys.overlap(missing))
+            .limit(len(missing) * 3)
         )
         for row_map in (await session.execute(brand_stmt)).scalars().all():
             if not isinstance(row_map, dict):
@@ -158,12 +171,60 @@ async def stream_scan_analysis(
         user_id=user_id,
         profile_id=request.profile_id,
     )
+    active_profile_id = active_profile.id
+    active_profile_allergies = list(active_profile.allergies_json or [])
+
+    try:
+        async for sse_event in _stream_scan_analysis_inner(
+            started_at=started_at,
+            scan_id=scan_id,
+            session=session,
+            user_id=user_id,
+            active_profile_id=active_profile_id,
+            active_profile_allergies=active_profile_allergies,
+            request=request,
+            settings=settings,
+            rag_retriever=rag_retriever,
+            briefing_generator=briefing_generator,
+            ml_service=ml_service,
+        ):
+            event_seq += 1
+            yield sse_event
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.exception("scan_analysis_stream_failed", scan_id=str(scan_id), error=str(exc))
+        event_seq += 1
+        err_payload = json.dumps(
+            {
+                "scan_id": str(scan_id),
+                "message": "Safety analysis stream encountered a server error. Please retry.",
+            }
+        )
+        yield _format_sse_event(event_seq, "error", err_payload)
+
+
+async def _stream_scan_analysis_inner(
+    *,
+    started_at: float,
+    scan_id: UUID,
+    session: AsyncSession,
+    user_id: UUID,
+    active_profile_id: UUID,
+    active_profile_allergies: list[Any],
+    request: ScanAnalyzeRequest,
+    settings: Settings,
+    rag_retriever: HybridRagRetriever | None,
+    briefing_generator: LlmBriefingGenerator,
+    ml_service: DdiMlInferenceService | None = None,
+) -> AsyncIterator[dict[str, str]]:
+    event_seq = 0
 
     with traced_span(
         "pillscope.scan.analyze",
         attributes={
             "pillscope.scan_id": str(scan_id),
-            "pillscope.profile_id": str(active_profile.id),
+            "pillscope.profile_id": str(active_profile_id),
             "pillscope.persist": request.persist,
             "pillscope.input_mode": request.input_mode,
         },
@@ -187,6 +248,7 @@ async def stream_scan_analysis(
                     request=DrugResolveRequest(
                         query=request.submitted_query,
                         raw_ocr_text=request.raw_ocr_text,
+                        country_code=request.country_code,
                         limit=1,
                     ),
                 )
@@ -205,7 +267,7 @@ async def stream_scan_analysis(
                     await session.execute(
                         select(Medication).where(
                             Medication.user_id == user_id,
-                            Medication.profile_id == active_profile.id,
+                            Medication.profile_id == active_profile_id,
                             Medication.is_active.is_(True),
                         )
                     )
@@ -228,12 +290,12 @@ async def stream_scan_analysis(
             duplicate_salts = await detect_duplicate_salts(
                 session=session,
                 user_id=user_id,
-                profile_id=active_profile.id,
+                profile_id=active_profile_id,
                 candidate_salts=resolved_salts,
             )
             allergy_alerts = detect_allergy_conflicts(
                 candidate_salts=resolved_salts,
-                allergies_json=active_profile.allergies_json,
+                allergies_json=active_profile_allergies,
             )
             deterministic_alerts: list[
                 DeterministicDdiAlert
@@ -241,6 +303,11 @@ async def stream_scan_analysis(
                 session=session,
                 candidate_salts=resolved_salts,
                 cabinet_salts=cabinet_salts,
+            )
+            active_recalls: list[MedicationRecallFlag] = await match_active_recalls_for_salts(
+                session=session,
+                canonical_salts=resolved_salts,
+                submitted_query=request.submitted_query,
             )
 
             has_major_ddi = any(alert.severity == "MAJOR" for alert in deterministic_alerts)
@@ -253,6 +320,7 @@ async def stream_scan_analysis(
             det_span.set_attribute("pillscope.duplicate_count", len(duplicate_salts))
             det_span.set_attribute("pillscope.allergy_alert_count", len(allergy_alerts))
             det_span.set_attribute("pillscope.deterministic_alert_count", len(deterministic_alerts))
+            det_span.set_attribute("pillscope.active_recall_count", len(active_recalls))
             det_span.set_attribute("pillscope.safety_banner_locked", safety_banner_locked)
             det_span.set_attribute(
                 "pillscope.duration_ms",
@@ -262,7 +330,7 @@ async def stream_scan_analysis(
         event_seq += 1
         det_event = DeterministicSafetyEvent(
             scan_id=scan_id,
-            profile_id=active_profile.id,
+            profile_id=active_profile_id,
             persisted=request.persist,
             submitted_query=request.submitted_query,
             resolved_salts=resolved_salts,
@@ -271,6 +339,7 @@ async def stream_scan_analysis(
             duplicate_salts=duplicate_salts,
             allergy_alerts=allergy_alerts,
             deterministic_alerts=deterministic_alerts,
+            active_recalls=active_recalls,
         )
         yield _format_sse_event(event_seq, "deterministic_safety", det_event.model_dump_json())
 
@@ -471,7 +540,7 @@ async def stream_scan_analysis(
             scan_log = ScanLog(
                 id=scan_id,
                 user_id=user_id,
-                profile_id=active_profile.id,
+                profile_id=active_profile_id,
                 input_mode=request.input_mode,
                 raw_ocr_text=request.raw_ocr_text,
                 edge_quality_metrics=request.edge_quality_metrics,
@@ -497,7 +566,7 @@ async def stream_scan_analysis(
         event_seq += 1
         complete_event = ScanCompleteEvent(
             scan_id=scan_id,
-            profile_id=active_profile.id,
+            profile_id=active_profile_id,
             persisted=request.persist,
             submitted_query=request.submitted_query,
             resolved_salts=resolved_salts,
@@ -507,6 +576,7 @@ async def stream_scan_analysis(
             duplicate_salts=duplicate_salts,
             allergy_alerts=allergy_alerts,
             lifestyle_triggers=lifestyle_triggers,
+            active_recalls=active_recalls,
             interactions=interactions,
             clinical_summary=verified.summary,
             citations=verified.verified_citations,

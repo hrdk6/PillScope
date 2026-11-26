@@ -53,6 +53,12 @@ class InMemoryScanReportDao : ScanReportDao {
     override suspend fun upsert(entity: CachedScanReportEntity) {
         store.value = store.value + (entity.scanId to entity)
     }
+
+    override suspend fun reassignProfileId(fromProfileId: String, toProfileId: String) {
+        store.value = store.value.mapValues { (_, entity) ->
+            if (entity.profileId == fromProfileId) entity.copy(profileId = toProfileId) else entity
+        }
+    }
 }
 
 class ScanRepositoryAndEdgeVisionTest {

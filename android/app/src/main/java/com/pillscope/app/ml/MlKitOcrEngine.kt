@@ -37,29 +37,46 @@ object OnDeviceSaltChipExtractor {
         "calcium carbonate",
         "calcium citrate",
         "calcium gluconate",
+        "calcium lactate",
         "potassium chloride",
+        "potassium citrate",
         "sodium chloride",
         "sodium bicarbonate",
+        "sodium phosphate",
         "magnesium hydroxide",
+        "magnesium oxide",
+        "magnesium sulfate",
+        "magnesium sulphate",
         "ferrous sulfate",
         "ferrous sulphate",
         "ferrous fumarate",
+        "ferrous ascorbate",
         "zinc sulfate",
         "zinc sulphate",
+        "zinc gluconate",
         "aluminum hydroxide",
         "aluminium hydroxide",
         "lithium carbonate",
+        "barium sulfate",
     )
 
     private val counterionSuffixes: Set<String> = setOf(
-        "dihydrochloride", "hydrochloride", "hydrobromide", "hcl",
+        "dihydrochloride", "monohydrochloride", "hydrochloride", "hydrobromide", "hyclate", "hcl",
         "sodium", "potassium", "calcium", "magnesium",
         "maleate", "tartrate", "bitartrate", "succinate", "fumarate", "hemifumarate",
-        "besylate", "besilate", "mesylate", "mesilate", "tosylate",
+        "besylate", "besilate", "mesylate", "mesilate", "tosylate", "esylate", "camsylate",
         "bisulfate", "bisulphate", "sulfate", "sulphate", "phosphate",
         "citrate", "acetate", "nitrate", "bromide", "chloride", "gluconate",
+        "lactate", "benzoate", "propionate", "dipropionate", "valerate", "furoate",
+        "disodium", "dipotassium", "tromethamine", "olamine", "meglumine",
+        "oxalate", "stearate", "palmitate",
         "trihydrate", "dihydrate", "monohydrate", "hemihydrate", "anhydrous", "hydrate",
-        "ip", "bp", "usp", "sr", "xr", "er", "pr", "dr", "cr", "ec", "mr", "dt",
+        "ip", "bp", "usp", "sr", "xr", "er", "pr", "dr", "cr", "ec", "mr", "tr", "dt", "md",
+    )
+
+    private val nonBrandLinePrefixRegex = Regex(
+        """^(?:rx\b|mrp\b|m\.?r\.?p\.?\b|batch\b|b\.?\s*no\.?\b|mfg\b|mfd\b|exp\b|expiry\b|schedule\b|store\b|keep\b|composition\b|each\b|dosage\b|caution\b|warning\b|net\s*qty\b|manufactured\b|marketed\b|for\s+external\b|incl\.?\s*of\b|all\s+taxes\b)""",
+        RegexOption.IGNORE_CASE,
     )
 
     private val noiseWords: Set<String> = setOf(
@@ -163,16 +180,41 @@ object OnDeviceSaltChipExtractor {
                 )
             }
         }
+        if (found.isEmpty()) {
+            val lowered = nonAlnumRegex.replace(rawOcrText.lowercase(), " ").trim()
+            val padded = " $lowered "
+            for ((synonym, canonical) in saltSynonyms) {
+                if (" $synonym " in padded && !found.containsKey(canonical)) {
+                    found[canonical] = LocalSaltChip(canonicalSalt = canonical, strengthText = null)
+                }
+            }
+            for (inorganic in preservedInorganic) {
+                if (" $inorganic " in padded) {
+                    val canonical = normalizeCanonicalSalt(inorganic)
+                    if (!found.containsKey(canonical)) {
+                        found[canonical] = LocalSaltChip(canonicalSalt = canonical, strengthText = null)
+                    }
+                }
+            }
+        }
         return found.values.toList()
     }
 
     fun extractPrimaryBrandGuess(rawOcrText: String): String {
-        val firstLine = rawOcrText
+        val candidateLines = rawOcrText
             .lineSequence()
             .map { it.trim() }
-            .firstOrNull { line -> line.length >= 3 && line.any { it.isLetter() } }
-            ?: return ""
-        return firstLine.take(64)
+            .filter { line -> line.length >= 3 && line.count { it.isLetter() } >= 2 }
+            .toList()
+        if (candidateLines.isEmpty()) return ""
+
+        val preferred = candidateLines.firstOrNull { line ->
+            !nonBrandLinePrefixRegex.containsMatchIn(line) &&
+                !line.startsWith("₹") &&
+                !line.startsWith("rs.", ignoreCase = true) &&
+                !line.startsWith("rs ", ignoreCase = true)
+        }
+        return (preferred ?: candidateLines.first()).take(64)
     }
 }
 
