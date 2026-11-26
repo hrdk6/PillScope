@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="PillScope — Safety-first medication copilot and drug-interaction intelligence">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1324"/>
+      <stop offset="55%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#0B2A2B"/>
+    </linearGradient>
+    <linearGradient id="tealAccent" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#14B8A6"/>
+      <stop offset="100%" stop-color="#0F766E"/>
+    </linearGradient>
+    <linearGradient id="crimsonGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#991B1B"/>
+      <stop offset="100%" stop-color="#B91C1C"/>
+    </linearGradient>
+    <pattern id="clinicalGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#1E293B" stroke-width="0.75" opacity="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Main clinical container -->
+  <rect x="0" y="0" width="1200" height="320" rx="18" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="1200" height="320" rx="18" fill="url(#clinicalGrid)"/>
+  <rect x="1" y="1" width="1198" height="318" rx="17" fill="none" stroke="#1E3A3A" stroke-width="1.5"/>
+
+  <!-- Left vertical structural accent bar -->
+  <rect x="0" y="34" width="6" height="252" rx="3" fill="url(#tealAccent)"/>
+
+  <!-- Left: Brand Identity & 4-Tier Strip -->
+  <g transform="translate(52, 54)">
+    <!-- Minimal clinical emblem: capsule inside scan reticle -->
+    <g transform="translate(0, 4)">
+      <rect x="0" y="0" width="54" height="54" rx="12" fill="#0D2E2C" stroke="#14B8A6" stroke-width="1.5"/>
+      <path d="M 10 18 L 10 10 L 18 10 M 36 10 L 44 10 L 44 18 M 44 36 L 44 44 L 36 44 M 18 44 L 10 44 L 10 36"
+            fill="none" stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <g transform="translate(27,27) rotate(-35)">
+        <rect x="-13" y="-6.5" width="26" height="13" rx="6.5" fill="#CCFBF1"/>
+        <path d="M 0 -6.5 L 6.5 -6.5 A 6.5 6.5 0 0 1 6.5 6.5 L 0 6.5 Z" fill="#0F766E"/>
+        <line x1="0" y1="-6.5" x2="0" y2="6.5" stroke="#0F172A" stroke-width="1.2"/>
+      </g>
+    </g>
+
+    <!-- Title & Subtitle -->
+    <text x="72" y="34" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+          font-size="40" font-weight="800" fill="#F8FAFC" letter-spacing="-1.0">PillScope</text>
+    <text x="73" y="58" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+          font-size="16" font-weight="500" fill="#94A3B8">Safety-first medication copilot and drug-interaction intelligence</text>
+
+    <!-- Plain descriptive summary -->
+    <text x="0" y="108" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+          font-size="15" font-weight="400" fill="#CBD5E1">
+      <tspan x="0" dy="0">On-device Android edge vision paired with deterministic pharmacovigilance,</tspan>
+      <tspan x="0" dy="24">molecular DDI scoring, and citation-verified clinical briefings over SSE.</tspan>
+    </text>
+
+    <!-- 4-Tier Safety Pipeline Strip -->
+    <g transform="translate(0, 166)">
+      <!-- Tier 1 -->
+      <rect x="0" y="0" width="144" height="52" rx="9" fill="#2A0E12" stroke="#B91C1C" stroke-width="1.5"/>
+      <circle cx="15" cy="18" r="4" fill="#EF4444"/>
+      <text x="26" y="22" font-family="'SFMono-Regular', Consolas, monospace" font-size="11" font-weight="700" fill="#FCA5A5">Tier 1 Gate</text>
+      <text x="12" y="40" font-family="system-ui, sans-serif" font-size="11" fill="#FECACA">Locked MAJOR DDI</text>
+
+      <path d="M 147 26 L 159 26" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/>
+
+      <!-- Tier 2 -->
+      <rect x="162" y="0" width="144" height="52" rx="9" fill="#0F1D3D" stroke="#2563EB" stroke-width="1.5"/>
+      <circle cx="177" cy="18" r="4" fill="#60A5FA"/>
+      <text x="188" y="22" font-family="'SFMono-Regular', Consolas, monospace" font-size="11" font-weight="700" fill="#93C5FD">Tier 2 ML</text>
+      <text x="174" y="40" font-family="system-ui, sans-serif" font-size="11" fill="#DBEAFE">RDKit + LGBM/MLP</text>
+
+      <path d="M 309 26 L 321 26" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/>
+
+      <!-- Tier 3 -->
+      <rect x="324" y="0" width="144" height="52" rx="9" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"/>
+      <circle cx="339" cy="18" r="4" fill="#A5B4FC"/>
+      <text x="350" y="22" font-family="'SFMono-Regular', Consolas, monospace" font-size="11" font-weight="700" fill="#C7D2FE">Tier 3 RAG</text>
+      <text x="336" y="40" font-family="system-ui, sans-serif" font-size="11" fill="#E0E7FF">FTS + HNSW + RRF</text>
+
+      <path d="M 471 26 L 483 26" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/>
+
+      <!-- Tier 4 -->
+      <rect x="486" y="0" width="152" height="52" rx="9" fill="#0B2E1E" stroke="#16A34A" stroke-width="1.5"/>
+      <circle cx="501" cy="18" r="4" fill="#4ADE80"/>
+      <text x="512" y="22" font-family="'SFMono-Regular', Consolas, monospace" font-size="11" font-weight="700" fill="#86EFAC">Tier 4 Verify</text>
+      <text x="498" y="40" font-family="system-ui, sans-serif" font-size="11" fill="#DCFCE7">0% Fake Citations</text>
+    </g>
+  </g>
+
+  <!-- Right: Clinical SSE Stream Specimen Card -->
+  <g transform="translate(740, 30)">
+    <rect x="0" y="0" width="412" height="260" rx="14" fill="#111C31" stroke="#1E293B" stroke-width="1.5"/>
+
+    <!-- Specimen Header -->
+    <rect x="0" y="0" width="412" height="38" rx="14" fill="#16223A"/>
+    <rect x="0" y="24" width="412" height="14" fill="#16223A"/>
+    <circle cx="18" cy="19" r="4.5" fill="#14B8A6"/>
+    <text x="32" y="23" font-family="'SFMono-Regular', Consolas, monospace" font-size="11.5" font-weight="600" fill="#E2E8F0">POST /api/v1/scans/analyze</text>
+    <rect x="334" y="10" width="62" height="18" rx="5" fill="#0D2E2C" stroke="#14B8A6" stroke-width="1"/>
+    <text x="365" y="22.5" text-anchor="middle" font-family="'SFMono-Regular', Consolas, monospace" font-size="10" font-weight="700" fill="#5EEAD4">SSE</text>
+
+    <!-- Locked Red Safety Banner Preview -->
+    <rect x="16" y="52" width="380" height="62" rx="10" fill="url(#crimsonGlow)"/>
+    <text x="30" y="75" font-family="system-ui, sans-serif" font-size="12.5" font-weight="800" fill="#FFFFFF">Critical safety alert locked</text>
+    <rect x="324" y="61" width="58" height="20" rx="5" fill="#7F1D1D"/>
+    <text x="353" y="75" text-anchor="middle" font-family="'SFMono-Regular', Consolas, monospace" font-size="10.5" font-weight="700" fill="#FEE2E2">MAJOR</text>
+    <text x="30" y="98" font-family="'SFMono-Regular', Consolas, monospace" font-size="11.5" fill="#FEE2E2">aspirin + warfarin (safety_banner_locked=true)</text>
+
+    <!-- Monotonic SSE Stream Rows -->
+    <g transform="translate(16, 128)" font-family="'SFMono-Regular', Consolas, monospace" font-size="11">
+      <rect x="0" y="0" width="380" height="26" rx="6" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="17" fill="#FCA5A5">id:1</text>
+      <text x="62" y="17" fill="#F8FAFC">deterministic_safety</text>
+      <text x="368" y="17" text-anchor="end" fill="#4ADE80">locked first</text>
+
+      <rect x="0" y="32" width="380" height="26" rx="6" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="49" fill="#93C5FD">id:2</text>
+      <text x="62" y="49" fill="#F8FAFC">interactions</text>
+      <text x="368" y="49" text-anchor="end" fill="#93C5FD">ECFP4 2098-d</text>
+
+      <rect x="0" y="64" width="380" height="26" rx="6" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="81" fill="#C7D2FE">id:3</text>
+      <text x="62" y="81" fill="#F8FAFC">citations</text>
+      <text x="368" y="81" text-anchor="end" fill="#C7D2FE">LOINC 34073-7</text>
+
+      <rect x="0" y="96" width="380" height="26" rx="6" fill="#0B2E1E" stroke="#15803D" stroke-width="1"/>
+      <text x="10" y="113" fill="#86EFAC">id:4-5</text>
+      <text x="62" y="113" fill="#ECFDF5">clinical_summary, complete</text>
+      <text x="368" y="113" text-anchor="end" fill="#4ADE80">verified=true</text>
+    </g>
+  </g>
+</svg>
