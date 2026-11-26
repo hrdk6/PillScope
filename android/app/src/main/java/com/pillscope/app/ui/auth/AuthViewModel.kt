@@ -18,6 +18,7 @@ data class AuthUiState(
     val errorMessage: String? = null,
     val accountActionError: String? = null,
     val isDeletingAccount: Boolean = false,
+    val hasPendingOfflineChanges: Boolean = false,
 )
 
 @HiltViewModel
@@ -49,6 +50,13 @@ class AuthViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null, accountActionError = null) }
+    }
+
+    fun refreshPendingOfflineStatus() {
+        viewModelScope.launch {
+            val hasPending = authRepository.hasPendingOfflineChanges()
+            _uiState.update { it.copy(hasPendingOfflineChanges = hasPending) }
+        }
     }
 
     fun signIn(email: String, password: String) {

@@ -188,15 +188,68 @@ class ProductionHardeningTest {
     @Test
     fun offlineAllergyCheckerDetectsDirectClassAndTypoConflicts() {
         val alerts = OfflineAllergyChecker.detectConflicts(
-            candidateSalts = listOf("amoxicillin", "ibuprofen"),
+            candidateSalts = listOf("amoxicillin", "ibuprofen", "metoprolol", "prednisone", "cetirizine"),
             allergies = listOf(
                 AllergyEntryDto(allergen = "Penicilin", severity = "SEVERE"),
                 AllergyEntryDto(allergen = "ibupofen"),
+                AllergyEntryDto(allergen = "Beta Blockers"),
+                AllergyEntryDto(allergen = "Steroids"),
+                AllergyEntryDto(allergen = "Antihistamines"),
             ),
         )
-        assertEquals(2, alerts.size)
+        assertEquals(5, alerts.size)
         assertTrue(alerts.any { it.canonicalSalt == "amoxicillin" && it.matchedClass == "penicillin" })
         assertTrue(alerts.any { it.canonicalSalt == "ibuprofen" && it.matchType == "DIRECT_SALT" })
+        assertTrue(alerts.any { it.canonicalSalt == "metoprolol" && it.matchedClass == "beta_blocker" })
+        assertTrue(alerts.any { it.canonicalSalt == "prednisone" && it.matchedClass == "corticosteroid" })
+        assertTrue(alerts.any { it.canonicalSalt == "cetirizine" && it.matchedClass == "antihistamine" })
+    }
+
+    @Test
+    fun cabinetSyncRefusesToReassignSecondaryLocalProfileMedicationOntoSelfProfile() = runTest {
+        val server = MockWebServer()
+        // Only the listMedications call should hit the server; local-profile-mom must NOT be uploaded to server-self-uuid!
+        server.enqueue(MockResponse().setResponseCode(200).setBody("[]"))
+        server.start()
+        try {
+            val json = ScanSseParser.defaultSseJson
+            val api = Retrofit.Builder()
+                .baseUrl(server.url("/").toString())
+                .client(OkHttpClient())
+                .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+                .build()
+                .create(PillScopeApi::class.java)
+            val dao = InMemoryMedicationDao()
+            dao.upsert(
+                com.pillscope.app.data.local.entity.MedicationEntity(
+                    id = "local-med-mom-1",
+                    profileId = "local-profile-mom",
+                    brandMappingId = null,
+                    displayName = "Thyronorm 50",
+                    genericSaltsJson = """[{"canonical_salt":"levothyroxine"}]""",
+                    canonicalSaltKeysCsv = "levothyroxine",
+                    dosageSchedule = "1 OD",
+                    isActive = true,
+                    syncStatus = com.pillscope.app.data.local.entity.SyncStatus.PENDING_CREATE,
+                    updatedAtEpochMs = 1L,
+                ),
+            )
+            val repo = com.pillscope.app.data.repository.CabinetRepository(
+                medicationDao = dao,
+                api = api,
+                json = json,
+            )
+
+            val report = repo.syncWithBackend(profileId = "11111111-1111-1111-1111-111111111111")
+            assertEquals(0, report.pushedCreates)
+            assertEquals(1, server.requestCount)
+            val stillPending = dao.getById("local-med-mom-1")
+            assertNotNull(stillPending)
+            assertEquals("local-profile-mom", stillPending!!.profileId)
+            assertEquals(com.pillscope.app.data.local.entity.SyncStatus.PENDING_CREATE, stillPending.syncStatus)
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

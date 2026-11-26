@@ -78,6 +78,10 @@ class ScheduleViewModel @Inject constructor(
         refreshScheduleForProfile(profileRepository.selectedProfileId.value)
     }
 
+    fun resetForAccountChange() {
+        _uiState.value = ScheduleUiState()
+    }
+
     fun doseKey(medicationId: String, slot: String, doseNumber: Int): String =
         doseAdherenceStore.doseKey(
             profileId = profileRepository.selectedProfileId.value,

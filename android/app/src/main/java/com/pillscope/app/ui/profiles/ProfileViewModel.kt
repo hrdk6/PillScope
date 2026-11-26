@@ -59,16 +59,24 @@ class ProfileViewModel @Inject constructor(
         _uiState.update { it.copy(statusMessage = null, errorMessage = null) }
     }
 
+    fun resetForAccountChange() {
+        _uiState.value = ProfileUiState()
+    }
+
     fun refreshProfiles() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
-            val outcome = profileRepository.refreshProfiles()
-            _uiState.update {
-                it.copy(
-                    isRefreshing = false,
-                    errorMessage = outcome.error?.takeIf { e -> e !is ApiCallError.Offline }?.userMessage,
-                )
-            }
+            refreshProfilesAndAwait()
+        }
+    }
+
+    suspend fun refreshProfilesAndAwait() {
+        _uiState.update { it.copy(isRefreshing = true, errorMessage = null) }
+        val outcome = profileRepository.refreshProfiles()
+        _uiState.update {
+            it.copy(
+                isRefreshing = false,
+                errorMessage = outcome.error?.takeIf { e -> e !is ApiCallError.Offline }?.userMessage,
+            )
         }
     }
 

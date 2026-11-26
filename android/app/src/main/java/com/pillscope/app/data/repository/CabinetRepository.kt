@@ -272,6 +272,65 @@ class CabinetRepository {
         )
     }
 
+    suspend fun hasPendingSync(): Boolean = medicationDao.getPendingSync().isNotEmpty()
+
+    suspend fun updateMedicationDetails(
+        id: String,
+        displayName: String,
+        dosageSchedule: String?,
+    ): MedicationToggleResult {
+        val existing = medicationDao.getById(id)
+            ?: return MedicationToggleResult(updatedLocally = false, syncedWithServer = false)
+        val trimmedName = displayName.trim()
+        if (trimmedName.isEmpty()) {
+            return MedicationToggleResult(
+                updatedLocally = false,
+                syncedWithServer = false,
+                apiError = ApiCallError.Validation("Medication name cannot be blank."),
+            )
+        }
+        val cleanedSchedule = dosageSchedule?.trim()?.takeIf { it.isNotEmpty() }
+        val now = System.currentTimeMillis()
+        val nextSyncStatus = if (existing.syncStatus == SyncStatus.PENDING_CREATE) {
+            SyncStatus.PENDING_CREATE
+        } else {
+            SyncStatus.PENDING_UPDATE
+        }
+        medicationDao.upsert(
+            existing.copy(
+                displayName = trimmedName,
+                dosageSchedule = cleanedSchedule,
+                syncStatus = nextSyncStatus,
+                updatedAtEpochMs = now,
+            ),
+        )
+        if (nextSyncStatus == SyncStatus.PENDING_CREATE) {
+            return MedicationToggleResult(updatedLocally = true, syncedWithServer = false)
+        }
+        val remoteResult = runCatching {
+            api.updateMedication(
+                id,
+                MedicationUpdateRequestDto(
+                    displayName = trimmedName,
+                    dosageSchedule = cleanedSchedule ?: "",
+                ),
+            )
+        }
+        return remoteResult.fold(
+            onSuccess = { remote ->
+                medicationDao.upsert(fromRemoteDto(remote, existing.profileId, now))
+                MedicationToggleResult(updatedLocally = true, syncedWithServer = true)
+            },
+            onFailure = { exc ->
+                MedicationToggleResult(
+                    updatedLocally = true,
+                    syncedWithServer = false,
+                    apiError = exc.toApiCallError(json),
+                )
+            },
+        )
+    }
+
     suspend fun toggleMedicationActive(id: String, isActive: Boolean): Boolean =
         toggleMedicationActiveDetailed(id, isActive).syncedWithServer
 
@@ -400,9 +459,14 @@ class CabinetRepository {
         for (entity in pending) {
             when (entity.syncStatus) {
                 SyncStatus.PENDING_CREATE -> {
+                    // Never upload a secondary offline profile's medication onto another profile ID.
+                    // Wait until ProfileRepository syncs the offline profile and reassigns its UUID.
+                    if (entity.profileId.startsWith("local-")) {
+                        continue
+                    }
                     val salts = decodeSalts(entity.genericSaltsJson)
                     val targetProfile = entity.profileId.takeIf {
-                        it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
+                        it.isNotBlank() && it != DefaultProfileIds.LOCAL_DEFAULT
                     } ?: serverProfileId
                     val remoteResult = runCatching {
                         api.createMedication(

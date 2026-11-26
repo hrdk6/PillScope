@@ -39,6 +39,9 @@ class AuthRepository @Inject constructor(
     private val api: PillScopeApi,
     private val tokenProvider: AuthTokenProvider,
     private val database: PillScopeDatabase,
+    private val profileRepository: ProfileRepository,
+    private val cabinetRepository: CabinetRepository,
+    private val doseAdherenceStore: DoseAdherenceStore,
     private val json: Json,
     private val sessionEventBus: SessionEventBus,
 ) {
@@ -46,6 +49,9 @@ class AuthRepository @Inject constructor(
     val sessionState: StateFlow<AuthSessionState> = _sessionState.asStateFlow()
 
     val sessionExpiredEvents = sessionEventBus.sessionExpired
+
+    suspend fun hasPendingOfflineChanges(): Boolean =
+        profileRepository.hasPendingSync() || cabinetRepository.hasPendingSync()
 
     suspend fun restoreSession() {
         if (!tokenProvider.isConsentAccepted()) {
@@ -62,6 +68,8 @@ class AuthRepository @Inject constructor(
         val remoteMe = runCatching { api.getMe() }
         remoteMe.fold(
             onSuccess = { user ->
+                wipeLocalDataIfDifferentUser(user.id)
+                tokenProvider.saveLastUserId(user.id)
                 tokenProvider.saveUserSummary(user.email, user.displayName)
                 _sessionState.value = AuthSessionState.Authenticated(user = user)
             },
@@ -71,28 +79,13 @@ class AuthRepository @Inject constructor(
                         tokenProvider.clearTokens()
                         _sessionState.value = AuthSessionState.Unauthenticated(err.userMessage)
                     }
-                    is ApiCallError.Offline -> {
-                        val cachedEmail = tokenProvider.getCachedUserEmail()
-                        if (!cachedEmail.isNullOrBlank()) {
-                            _sessionState.value = AuthSessionState.Authenticated(
-                                user = UserResponseDto(
-                                    id = "offline-session",
-                                    email = cachedEmail,
-                                    displayName = tokenProvider.getCachedUserDisplayName(),
-                                    isActive = true,
-                                ),
-                                offlineResumed = true,
-                            )
-                        } else {
-                            _sessionState.value = AuthSessionState.Unauthenticated(err.userMessage)
-                        }
-                    }
                     else -> {
                         val cachedEmail = tokenProvider.getCachedUserEmail()
-                        if (!cachedEmail.isNullOrBlank()) {
+                        val cachedUserId = tokenProvider.getLastUserId()
+                        if (!cachedEmail.isNullOrBlank() && !cachedUserId.isNullOrBlank()) {
                             _sessionState.value = AuthSessionState.Authenticated(
                                 user = UserResponseDto(
-                                    id = "offline-session",
+                                    id = cachedUserId,
                                     email = cachedEmail,
                                     displayName = tokenProvider.getCachedUserDisplayName(),
                                     isActive = true,
@@ -125,6 +118,8 @@ class AuthRepository @Inject constructor(
         }
         return result.fold(
             onSuccess = { auth ->
+                wipeLocalDataIfDifferentUser(auth.user.id)
+                tokenProvider.saveLastUserId(auth.user.id)
                 tokenProvider.saveTokens(
                     accessToken = auth.tokens.accessToken,
                     refreshToken = auth.tokens.refreshToken,
@@ -155,6 +150,9 @@ class AuthRepository @Inject constructor(
         }
         return result.fold(
             onSuccess = { auth ->
+                // A newly registered account must never inherit prior local data.
+                clearLocalHealthData()
+                tokenProvider.saveLastUserId(auth.user.id)
                 tokenProvider.saveTokens(
                     accessToken = auth.tokens.accessToken,
                     refreshToken = auth.tokens.refreshToken,
@@ -204,10 +202,24 @@ class AuthRepository @Inject constructor(
         _sessionState.value = AuthSessionState.Unauthenticated(reason)
     }
 
-    private suspend fun clearLocalSessionData() {
-        tokenProvider.clearTokens()
+    private suspend fun wipeLocalDataIfDifferentUser(newUserId: String) {
+        val previousUserId = tokenProvider.getLastUserId()
+        if (!previousUserId.isNullOrBlank() && previousUserId != newUserId) {
+            clearLocalHealthData()
+        }
+    }
+
+    private suspend fun clearLocalHealthData() {
+        profileRepository.resetLocalSelection()
+        doseAdherenceStore.clearAll()
         withContext(Dispatchers.IO) {
             database.clearAllTables()
         }
+    }
+
+    private suspend fun clearLocalSessionData() {
+        tokenProvider.clearTokens()
+        tokenProvider.clearLastUserId()
+        clearLocalHealthData()
     }
 }

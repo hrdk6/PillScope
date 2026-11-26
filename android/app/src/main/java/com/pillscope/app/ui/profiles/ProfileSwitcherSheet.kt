@@ -141,6 +141,7 @@ fun ProfileSwitcherSheet(
     activeProfile: UserProfile,
     userEmail: String?,
     offlineSession: Boolean,
+    hasPendingOfflineChanges: Boolean = false,
     statusMessage: String?,
     errorMessage: String?,
     accountActionError: String?,
@@ -171,6 +172,7 @@ fun ProfileSwitcherSheet(
     var editMakeDefault by remember { mutableStateOf(false) }
 
     var pendingDeleteProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var showSignOutConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var deleteAccountConfirmText by remember { mutableStateOf("") }
 
@@ -511,7 +513,15 @@ fun ProfileSwitcherSheet(
 
                 Button(
                     onClick = {
-                        onSaveAllergies(activeProfile.id, editableAllergies)
+                        val pendingEntries = customAllergen
+                            .split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                        val finalAllergies = (editableAllergies + pendingEntries)
+                            .distinctBy { it.lowercase() }
+                        editableAllergies = finalAllergies
+                        customAllergen = ""
+                        onSaveAllergies(activeProfile.id, finalAllergies)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -636,7 +646,7 @@ fun ProfileSwitcherSheet(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     OutlinedButton(
-                        onClick = onSignOut,
+                        onClick = { showSignOutConfirmDialog = true },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
                     ) {
@@ -693,6 +703,42 @@ fun ProfileSwitcherSheet(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteProfile = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (showSignOutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutConfirmDialog = false },
+            title = { Text("Sign out of PillScope?") },
+            text = {
+                Text(
+                    if (hasPendingOfflineChanges) {
+                        "Warning: You have unsynced offline medication or profile changes on this device. " +
+                            "Signing out now will permanently clear local offline data before it is uploaded. " +
+                            "Connect online and sync first, or sign out anyway?"
+                    } else {
+                        "Signing out clears cached medication data from this device. Your synced records remain safely stored in your account."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSignOutConfirmDialog = false
+                        onSignOut()
+                    },
+                ) {
+                    Text(
+                        text = if (hasPendingOfflineChanges) "Sign out & discard" else "Sign out",
+                        color = if (hasPendingOfflineChanges) PillScopeColors.CriticalCrimson else PillScopeColors.ClinicalTeal,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutConfirmDialog = false }) {
                     Text("Cancel")
                 }
             },

@@ -68,6 +68,8 @@ class MedicineLabelAnalyzer(
                             rawOcrText = "",
                             localSaltChips = emptyList(),
                             primaryBrandGuess = "",
+                            frameWidth = uprightBitmap.width,
+                            frameHeight = uprightBitmap.height,
                         ),
                     )
                     return@launch
@@ -99,6 +101,8 @@ class MedicineLabelAnalyzer(
                         localSaltChips = chips,
                         primaryBrandGuess = brandGuess,
                         ocrTextBlocks = ocrResult.blocks,
+                        frameWidth = uprightBitmap.width,
+                        frameHeight = uprightBitmap.height,
                     ),
                 )
             } finally {

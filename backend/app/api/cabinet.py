@@ -272,6 +272,8 @@ async def update_medication(
             continue
         if field == "display_name" and isinstance(value, str):
             value = value.strip()
+        if field == "dosage_schedule" and isinstance(value, str):
+            value = value.strip() or None
         setattr(medication, field, value)
 
     reactivating = (not was_active) and bool(medication.is_active)

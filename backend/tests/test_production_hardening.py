@@ -403,14 +403,18 @@ async def test_sync_terminated_recalls_updates_ongoing_status(
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_middleware_returns_429(
+async def test_rate_limit_middleware_blocks_spoofed_xff_and_throttles_api(
     test_settings: Settings,
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
+    # 1. With trusted_proxy_ips=[] (default), rotating X-Forwarded-For MUST NOT bypass rate limits
     rl_settings = test_settings.model_copy(
         update={
             "rate_limit_enabled": True,
             "rate_limit_auth_per_minute": 2,
+            "rate_limit_api_per_minute": 2,
+            "trusted_proxy_ips": [],
+            "redis_url": "redis://127.0.0.1:1/0",  # Force in-memory limiter isolation
         }
     )
     app = create_app(settings=rl_settings)
@@ -420,20 +424,113 @@ async def test_rate_limit_middleware_returns_429(
             yield session
 
     app.dependency_overrides[get_db_session] = _override_db
-    client_headers = {"X-Forwarded-For": f"198.51.100.{uuid4().int % 250}"}
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        for _ in range(2):
+        for idx in range(2):
             r = await client.post(
                 "/api/v1/auth/login",
-                headers=client_headers,
+                headers={"X-Forwarded-For": f"203.0.113.{idx + 1}"},
                 json={"email": "missing@example.com", "password": "wrongpassword"},
             )
             assert r.status_code == 401
         third = await client.post(
             "/api/v1/auth/login",
-            headers=client_headers,
+            headers={"X-Forwarded-For": "203.0.113.99"},
             json={"email": "missing@example.com", "password": "wrongpassword"},
         )
         assert third.status_code == 429
         assert "Retry-After" in third.headers
+
+        # Core API endpoints (/api/v1/drugs/*) are also rate-limited
+        for _ in range(2):
+            r_api = await client.get("/api/v1/drugs/search?q=dolo")
+            assert r_api.status_code == 401
+        third_api = await client.get("/api/v1/drugs/search?q=dolo")
+        assert third_api.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_scan_log_persists_active_recalls_and_web_deletion_form(
+    api_client: AsyncClient,
+    db_session: AsyncSession,
+    test_settings: Settings,
+) -> None:
+    reg = await api_client.post(
+        "/api/v1/auth/register",
+        json={"email": "webdel@example.com", "password": "StrongPassword123!"},
+    )
+    assert reg.status_code == 201
+    token = reg.json()["tokens"]["access_token"]
+    user_id = reg.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    profiles = (await api_client.get("/api/v1/profiles", headers=headers)).json()
+    profile_id = profiles[0]["id"]
+
+    db_session.add(
+        RecallAlert(
+            recall_number="D-HIST-2026",
+            status="Ongoing",
+            classification="Class I",
+            recalling_firm="Acme Labs",
+            product_description="Warfarin Sodium 5mg",
+            reason_for_recall="Potency deviation.",
+            canonical_salt_keys=["warfarin"],
+            brand_names=["warf"],
+            generic_names=["warfarin"],
+            source_url="https://api.fda.gov/drug/enforcement.json?search=recall_number:D-HIST-2026",
+        )
+    )
+    await db_session.commit()
+
+    # Persist scan log via stream_scan_analysis and verify GET /api/v1/scans returns active_recalls
+    profile_obj = (
+        await db_session.execute(select(Profile).where(Profile.id == profile_id))
+    ).scalar_one()
+    req = ScanAnalyzeRequest(
+        profile_id=profile_obj.id,
+        persist=True,
+        input_mode="MANUAL_TEXT",
+        submitted_query="Warf 5",
+        confirmed_salts=["warfarin"],
+    )
+    async for _ in stream_scan_analysis(
+        session=db_session,
+        user_id=profile_obj.user_id,
+        request=req,
+        settings=test_settings,
+        rag_retriever=None,
+        briefing_generator=DeterministicGroundedBriefingGenerator(),
+        profile=profile_obj,
+    ):
+        pass
+
+    history_resp = await api_client.get("/api/v1/scans", headers=headers)
+    assert history_resp.status_code == 200
+    items = history_resp.json()["items"]
+    assert len(items) == 1
+    assert len(items[0]["active_recalls"]) == 1
+    assert items[0]["active_recalls"][0]["recall_number"] == "D-HIST-2026"
+
+    # Web deletion form: reject bad confirmation and bad password, then delete account cleanly
+    bad_confirm = await api_client.post(
+        "/account-deletion",
+        data={"email": "webdel@example.com", "password": "StrongPassword123!", "confirm": "NO"},
+    )
+    assert bad_confirm.status_code == 400
+
+    bad_pw = await api_client.post(
+        "/account-deletion",
+        data={"email": "webdel@example.com", "password": "WrongPassword!", "confirm": "DELETE"},
+    )
+    assert bad_pw.status_code == 401
+
+    ok_del = await api_client.post(
+        "/account-deletion",
+        data={"email": "webdel@example.com", "password": "StrongPassword123!", "confirm": "DELETE"},
+    )
+    assert ok_del.status_code == 200
+    assert "permanently deleted" in ok_del.text.lower()
+
+    remaining = await db_session.scalar(select(User).where(User.id == user_id))
+    assert remaining is None

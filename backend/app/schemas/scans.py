@@ -23,6 +23,7 @@ class ScanLogResponse(BaseModel):
     duplicate_salts: list[dict[str, Any]]
     allergy_alerts: list[dict[str, Any]] = Field(default_factory=list)
     lifestyle_triggers: list[dict[str, Any]] = Field(default_factory=list)
+    active_recalls: list[dict[str, Any]] = Field(default_factory=list)
     interactions: list[dict[str, Any]]
     clinical_summary: dict[str, Any] | None
     citations: list[dict[str, Any]]

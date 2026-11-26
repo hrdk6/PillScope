@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.pillscope.app.BuildConfig
 import com.pillscope.app.data.remote.dto.RefreshRequestDto
 import com.pillscope.app.data.remote.dto.TokenResponseDto
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -40,6 +41,10 @@ interface AuthTokenProvider {
     fun getCachedUserEmail(): String? = null
     fun getCachedUserDisplayName(): String? = null
     fun saveUserSummary(email: String, displayName: String?) = Unit
+
+    fun getLastUserId(): String? = null
+    fun saveLastUserId(userId: String) = Unit
+    fun clearLastUserId() = Unit
 }
 
 @Singleton
@@ -55,18 +60,33 @@ class SessionEventBus @Inject constructor() {
 open class EncryptedAuthTokenStore(context: Context) : AuthTokenProvider {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    override fun getAccessToken(): String? = decrypt(prefs.getString(KEY_ACCESS, null))
+    @Volatile private var memoryAccessToken: String? = null
+    @Volatile private var memoryRefreshToken: String? = null
+    @Volatile private var memoryUserEmail: String? = null
+    @Volatile private var memoryUserDisplayName: String? = null
 
-    override fun getRefreshToken(): String? = decrypt(prefs.getString(KEY_REFRESH, null))
+    override fun getAccessToken(): String? =
+        memoryAccessToken ?: decrypt(prefs.getString(KEY_ACCESS, null))
+
+    override fun getRefreshToken(): String? =
+        memoryRefreshToken ?: decrypt(prefs.getString(KEY_REFRESH, null))
 
     override fun saveTokens(accessToken: String, refreshToken: String) {
-        prefs.edit()
-            .putString(KEY_ACCESS, encrypt(accessToken))
-            .putString(KEY_REFRESH, encrypt(refreshToken))
-            .apply()
+        memoryAccessToken = accessToken
+        memoryRefreshToken = refreshToken
+        val encAccess = encryptOrNull(accessToken)
+        val encRefresh = encryptOrNull(refreshToken)
+        val editor = prefs.edit()
+        if (encAccess != null) editor.putString(KEY_ACCESS, encAccess) else editor.remove(KEY_ACCESS)
+        if (encRefresh != null) editor.putString(KEY_REFRESH, encRefresh) else editor.remove(KEY_REFRESH)
+        editor.apply()
     }
 
     override fun clearTokens() {
+        memoryAccessToken = null
+        memoryRefreshToken = null
+        memoryUserEmail = null
+        memoryUserDisplayName = null
         prefs.edit()
             .remove(KEY_ACCESS)
             .remove(KEY_REFRESH)
@@ -81,19 +101,38 @@ open class EncryptedAuthTokenStore(context: Context) : AuthTokenProvider {
         prefs.edit().putBoolean(KEY_CONSENT_ACCEPTED, accepted).apply()
     }
 
-    override fun getCachedUserEmail(): String? = decrypt(prefs.getString(KEY_USER_EMAIL, null))
+    override fun getCachedUserEmail(): String? =
+        memoryUserEmail ?: decrypt(prefs.getString(KEY_USER_EMAIL, null))
 
-    override fun getCachedUserDisplayName(): String? = decrypt(prefs.getString(KEY_USER_NAME, null))
+    override fun getCachedUserDisplayName(): String? =
+        memoryUserDisplayName ?: decrypt(prefs.getString(KEY_USER_NAME, null))
 
     override fun saveUserSummary(email: String, displayName: String?) {
-        prefs.edit()
-            .putString(KEY_USER_EMAIL, encrypt(email))
-            .putString(KEY_USER_NAME, displayName?.let(::encrypt))
-            .apply()
+        memoryUserEmail = email
+        memoryUserDisplayName = displayName
+        val encEmail = encryptOrNull(email)
+        val encName = displayName?.let(::encryptOrNull)
+        val editor = prefs.edit()
+        if (encEmail != null) editor.putString(KEY_USER_EMAIL, encEmail) else editor.remove(KEY_USER_EMAIL)
+        if (encName != null) editor.putString(KEY_USER_NAME, encName) else editor.remove(KEY_USER_NAME)
+        editor.apply()
     }
 
-    private fun getOrCreateKey(): SecretKey? = runCatching {
+    override fun getLastUserId(): String? = prefs.getString(KEY_LAST_USER_ID, null)
+
+    override fun saveLastUserId(userId: String) {
+        prefs.edit().putString(KEY_LAST_USER_ID, userId).apply()
+    }
+
+    override fun clearLastUserId() {
+        prefs.edit().remove(KEY_LAST_USER_ID).apply()
+    }
+
+    private fun getOrCreateKey(forceRecreate: Boolean = false): SecretKey? = runCatching {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (forceRecreate && keyStore.containsAlias(KEY_ALIAS)) {
+            runCatching { keyStore.deleteEntry(KEY_ALIAS) }
+        }
         (keyStore.getKey(KEY_ALIAS, null) as? SecretKey) ?: run {
             val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
             val spec = KeyGenParameterSpec.Builder(
@@ -109,27 +148,37 @@ open class EncryptedAuthTokenStore(context: Context) : AuthTokenProvider {
         }
     }.getOrNull()
 
-    private fun encrypt(plaintext: String): String {
-        val secretKey = getOrCreateKey() ?: return "$PLAIN_PREFIX$plaintext"
-        return runCatching {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-            val iv = cipher.iv
-            val cipherBytes = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-            val ivB64 = Base64.encodeToString(iv, Base64.NO_WRAP)
-            val ctB64 = Base64.encodeToString(cipherBytes, Base64.NO_WRAP)
-            "$ENC_PREFIX$ivB64:$ctB64"
-        }.getOrElse { "$PLAIN_PREFIX$plaintext" }
+    private fun encryptWithKey(plaintext: String, secretKey: SecretKey): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        val cipherBytes = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        val ivB64 = Base64.encodeToString(iv, Base64.NO_WRAP)
+        val ctB64 = Base64.encodeToString(cipherBytes, Base64.NO_WRAP)
+        return "$ENC_PREFIX$ivB64:$ctB64"
+    }
+
+    private fun encryptOrNull(plaintext: String): String? {
+        val firstKey = getOrCreateKey(forceRecreate = false)
+        if (firstKey != null) {
+            runCatching { return encryptWithKey(plaintext, firstKey) }
+        }
+        // Retry once with a fresh Keystore entry in case OS upgrade invalidated the prior key.
+        val recreatedKey = getOrCreateKey(forceRecreate = true)
+        if (recreatedKey != null) {
+            runCatching { return encryptWithKey(plaintext, recreatedKey) }
+        }
+        // Never persist plaintext JWTs to disk in release builds; retain in memory only.
+        return if (BuildConfig.DEBUG) "$PLAIN_PREFIX$plaintext" else null
     }
 
     private fun decrypt(stored: String?): String? {
         if (stored.isNullOrBlank()) return null
         if (stored.startsWith(PLAIN_PREFIX)) {
-            return stored.removePrefix(PLAIN_PREFIX)
+            return if (BuildConfig.DEBUG) stored.removePrefix(PLAIN_PREFIX) else null
         }
         if (!stored.startsWith(ENC_PREFIX)) {
-            // Backward compatibility with legacy unencrypted entries
-            return stored
+            return if (BuildConfig.DEBUG) stored else null
         }
         val secretKey = getOrCreateKey() ?: return null
         return runCatching {
@@ -151,6 +200,7 @@ open class EncryptedAuthTokenStore(context: Context) : AuthTokenProvider {
         const val KEY_CONSENT_ACCEPTED = "consent_accepted_v1"
         const val KEY_USER_EMAIL = "user_email_enc"
         const val KEY_USER_NAME = "user_name_enc"
+        const val KEY_LAST_USER_ID = "last_user_id_v1"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val KEY_ALIAS = "pillscope_auth_aes256_key"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

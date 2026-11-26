@@ -146,14 +146,23 @@ fun CameraScanScreen(
     var hasFlashUnit by remember { mutableStateOf(false) }
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
 
-    // Refresh permission state when returning from Android App Settings.
+    // Refresh permission state on resume and reset hardware torch state on pause.
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hasCameraPermission = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.CAMERA,
-                ) == PackageManager.PERMISSION_GRANTED
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    hasCameraPermission = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA,
+                    ) == PackageManager.PERMISSION_GRANTED
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    if (torchEnabled) {
+                        torchEnabled = false
+                        runCatching { boundCamera?.cameraControl?.enableTorch(false) }
+                    }
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -213,6 +222,8 @@ fun CameraScanScreen(
                     cropBox = state.latestQuality?.cropBox ?: NormalizedCropRect.DEFAULT_LABEL_BOX,
                     ocrTextBlocks = state.ocrTextBlocks,
                     isAcceptable = currentAcceptable,
+                    frameWidth = state.frameWidth,
+                    frameHeight = state.frameHeight,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -339,7 +350,7 @@ fun CameraScanScreen(
                             Text(
                                 text = "Force scan",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                             )
                         }
@@ -655,6 +666,8 @@ private fun OpticalViewfinderHudOverlay(
     cropBox: NormalizedCropRect,
     ocrTextBlocks: List<OcrTextBlockBox>,
     isAcceptable: Boolean,
+    frameWidth: Int = 0,
+    frameHeight: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPillScopePalette.current
@@ -673,11 +686,27 @@ private fun OpticalViewfinderHudOverlay(
     )
 
     Canvas(modifier = modifier) {
+        // Compute the exact FIT_CENTER video content rect inside the PreviewView container
+        // so normalized OCR boxes and crop brackets align accurately across aspect ratios.
+        val (contentLeft, contentTop, contentW, contentH) = if (frameWidth > 0 && frameHeight > 0) {
+            val frameAspect = frameWidth.toFloat() / frameHeight.toFloat()
+            val viewAspect = size.width / size.height.coerceAtLeast(1f)
+            if (frameAspect > viewAspect) {
+                val h = size.width / frameAspect
+                listOf(0f, (size.height - h) / 2f, size.width, h)
+            } else {
+                val w = size.height * frameAspect
+                listOf((size.width - w) / 2f, 0f, w, size.height)
+            }
+        } else {
+            listOf(0f, 0f, size.width, size.height)
+        }
+
         for (block in ocrTextBlocks) {
-            val bLeft = block.bounds.left * size.width
-            val bTop = block.bounds.top * size.height
-            val bWidth = ((block.bounds.right - block.bounds.left) * size.width).coerceAtLeast(8f)
-            val bHeight = ((block.bounds.bottom - block.bounds.top) * size.height).coerceAtLeast(8f)
+            val bLeft = contentLeft + block.bounds.left * contentW
+            val bTop = contentTop + block.bounds.top * contentH
+            val bWidth = ((block.bounds.right - block.bounds.left) * contentW).coerceAtLeast(8f)
+            val bHeight = ((block.bounds.bottom - block.bounds.top) * contentH).coerceAtLeast(8f)
             drawRoundRect(
                 color = palette.hudEmeraldLock.copy(alpha = 0.22f),
                 topLeft = Offset(bLeft, bTop),
@@ -693,12 +722,12 @@ private fun OpticalViewfinderHudOverlay(
             )
         }
 
-        val expandX = size.width * bracketInsetScale
-        val expandY = size.height * bracketInsetScale
-        val left = (cropBox.left * size.width - expandX).coerceAtLeast(16.dp.toPx())
-        val top = (cropBox.top * size.height - expandY).coerceAtLeast(52.dp.toPx())
-        val right = (cropBox.right * size.width + expandX).coerceAtMost(size.width - 16.dp.toPx())
-        val bottom = (cropBox.bottom * size.height + expandY).coerceAtMost(size.height - 96.dp.toPx())
+        val expandX = contentW * bracketInsetScale
+        val expandY = contentH * bracketInsetScale
+        val left = (contentLeft + cropBox.left * contentW - expandX).coerceAtLeast(16.dp.toPx())
+        val top = (contentTop + cropBox.top * contentH - expandY).coerceAtLeast(52.dp.toPx())
+        val right = (contentLeft + cropBox.right * contentW + expandX).coerceAtMost(size.width - 16.dp.toPx())
+        val bottom = (contentTop + cropBox.bottom * contentH + expandY).coerceAtMost(size.height - 96.dp.toPx())
         val rectWidth = (right - left).coerceAtLeast(40f)
         val rectHeight = (bottom - top).coerceAtLeast(40f)
 

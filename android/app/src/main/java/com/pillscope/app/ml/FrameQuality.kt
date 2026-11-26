@@ -58,4 +58,6 @@ data class CameraPipelineResult(
     val localSaltChips: List<LocalSaltChip>,
     val primaryBrandGuess: String,
     val ocrTextBlocks: List<OcrTextBlockBox> = emptyList(),
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
 )

@@ -60,6 +60,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -102,15 +103,20 @@ import kotlin.math.sin
 @Composable
 fun ProgressiveAnalysisScreen(
     viewModel: AnalysisViewModel,
-    onAddToCabinet: ((displayName: String, canonicalSalts: List<String>) -> Unit)? = null,
+    onAddToCabinet: ((displayName: String, canonicalSalts: List<String>, dosageSchedule: String?) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val cachedHistory by viewModel.cachedHistory.collectAsStateWithLifecycle()
     val canRetry by viewModel.canRetry.collectAsStateWithLifecycle()
+    val savedScanKeys by viewModel.savedScanKeys.collectAsStateWithLifecycle()
     var selectedTrigger by remember { mutableStateOf<LifestyleTriggerDto?>(null) }
-    var addedForScanKey by remember(state.scanId, state.submittedQuery) { mutableStateOf(false) }
-    var showDangerAddConfirmation by remember { mutableStateOf(false) }
+    var showAddToCabinetDialog by remember { mutableStateOf(false) }
+    var draftCabinetName by remember { mutableStateOf("") }
+    var draftDosageSchedule by remember { mutableStateOf("") }
+
+    val scanKey = state.scanId ?: "${state.submittedQuery}:${state.resolvedSalts.joinToString(",")}"
+    val addedForScanKey = scanKey.isNotBlank() && scanKey in savedScanKeys
 
     val hasPinnedDanger = state.safetyBannerLocked ||
         state.allergyAlerts.isNotEmpty() ||
@@ -175,15 +181,11 @@ fun ProgressiveAnalysisScreen(
                 } else {
                     Button(
                         onClick = {
-                            if (hasPinnedDanger) {
-                                showDangerAddConfirmation = true
-                            } else {
-                                onAddToCabinet(
-                                    state.submittedQuery.ifBlank { state.resolvedSalts.joinToString(" + ") },
-                                    state.resolvedSalts,
-                                )
-                                addedForScanKey = true
+                            draftCabinetName = state.submittedQuery.ifBlank {
+                                state.resolvedSalts.joinToString(" + ")
                             }
+                            draftDosageSchedule = ""
+                            showAddToCabinetDialog = true
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(18.dp),
@@ -325,32 +327,71 @@ fun ProgressiveAnalysisScreen(
         }
     }
 
-    if (showDangerAddConfirmation && onAddToCabinet != null) {
+    if (showAddToCabinetDialog && onAddToCabinet != null) {
         AlertDialog(
-            onDismissRequest = { showDangerAddConfirmation = false },
-            title = { Text("Critical safety warning") },
+            onDismissRequest = { showAddToCabinetDialog = false },
+            title = {
+                Text(if (hasPinnedDanger) "Critical safety warning" else "Add to Cabinet")
+            },
             text = {
-                Text(
-                    "This medication triggered a locked safety alert (major interaction, allergy, duplicate salt, or FDA recall). " +
-                        "Consult a doctor or pharmacist before taking it. Save to your cabinet record anyway?",
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (hasPinnedDanger) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = PillScopeColors.CriticalCrimsonSurface,
+                        ) {
+                            Text(
+                                text = "This medication triggered a locked safety alert (major interaction, allergy, duplicate salt, or FDA recall). Consult a doctor or pharmacist before taking it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PillScopeColors.CriticalCrimsonDark,
+                                modifier = Modifier.padding(10.dp),
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = draftCabinetName,
+                        onValueChange = { draftCabinetName = it },
+                        label = { Text("Medication name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = "Active salts: ${state.resolvedSalts.joinToString(" + ")}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PillScopeColors.ClinicalTeal,
+                    )
+                    OutlinedTextField(
+                        value = draftDosageSchedule,
+                        onValueChange = { draftDosageSchedule = it },
+                        label = { Text("Dosage schedule (optional, e.g. 1 tab twice daily)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showDangerAddConfirmation = false
+                        showAddToCabinetDialog = false
                         onAddToCabinet(
-                            state.submittedQuery.ifBlank { state.resolvedSalts.joinToString(" + ") },
+                            draftCabinetName.trim().ifBlank {
+                                state.submittedQuery.ifBlank { state.resolvedSalts.joinToString(" + ") }
+                            },
                             state.resolvedSalts,
+                            draftDosageSchedule.trim().takeIf { it.isNotEmpty() },
                         )
-                        addedForScanKey = true
+                        viewModel.markScanSaved(scanKey)
                     },
+                    enabled = draftCabinetName.isNotBlank() || state.resolvedSalts.isNotEmpty(),
                 ) {
-                    Text("Save anyway", color = PillScopeColors.CriticalCrimson)
+                    Text(
+                        text = if (hasPinnedDanger) "Save anyway" else "Save",
+                        color = if (hasPinnedDanger) PillScopeColors.CriticalCrimson else PillScopeColors.ClinicalTeal,
+                    )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDangerAddConfirmation = false }) {
+                TextButton(onClick = { showAddToCabinetDialog = false }) {
                     Text("Cancel")
                 }
             },

@@ -26,6 +26,12 @@ val accountDeletionUrl: String =
         ?: System.getenv("PILLSCOPE_DELETION_URL")
         ?: "${releaseApiBaseUrl.trimEnd('/')}/account-deletion"
 
+val requireReleaseSigning: Boolean =
+    ((project.findProperty("PILLSCOPE_REQUIRE_SIGNING") as? String)
+        ?: System.getenv("PILLSCOPE_REQUIRE_SIGNING"))
+        .equals("true", ignoreCase = true) ||
+        gradle.startParameter.taskNames.any { it.contains("bundleRelease", ignoreCase = true) }
+
 val releaseKeystorePath: String? =
     (project.findProperty("PILLSCOPE_KEYSTORE_PATH") as? String)
         ?: System.getenv("PILLSCOPE_KEYSTORE_PATH")
@@ -81,6 +87,12 @@ android {
             val relSigning = signingConfigs.getByName("release")
             if (relSigning.storeFile != null) {
                 signingConfig = relSigning
+            } else if (requireReleaseSigning) {
+                error(
+                    "Release signing credentials are required for Play Store bundles. " +
+                        "Set PILLSCOPE_KEYSTORE_PATH, PILLSCOPE_KEYSTORE_PASSWORD, " +
+                        "PILLSCOPE_KEY_ALIAS, and PILLSCOPE_KEY_PASSWORD.",
+                )
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

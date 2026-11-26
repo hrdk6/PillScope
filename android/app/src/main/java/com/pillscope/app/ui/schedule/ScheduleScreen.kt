@@ -262,7 +262,7 @@ private fun TimelineSlotRow(
                     Icon(
                         imageVector = slotIcon,
                         contentDescription = null,
-                        tint = if (hasMeds) Color.White else PillScopeColors.InkSecondary,
+                        tint = if (hasMeds) MaterialTheme.colorScheme.onPrimary else PillScopeColors.InkSecondary,
                         modifier = Modifier.size(18.dp),
                     )
                 }
@@ -400,13 +400,13 @@ private fun ScheduledDoseCard(
                                     Icons.Default.RadioButtonUnchecked
                                 },
                                 contentDescription = if (isTaken) "Undo taken" else "Mark taken",
-                                tint = if (isTaken) Color.White else PillScopeColors.InkSecondary,
+                                tint = if (isTaken) MaterialTheme.colorScheme.onTertiary else PillScopeColors.InkSecondary,
                                 modifier = Modifier.size(14.dp),
                             )
                             Text(
                                 text = if (isTaken) "Taken" else "Take",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (isTaken) Color.White else PillScopeColors.InkSecondary,
+                                color = if (isTaken) MaterialTheme.colorScheme.onTertiary else PillScopeColors.InkSecondary,
                             )
                         }
                     }

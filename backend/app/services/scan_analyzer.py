@@ -553,6 +553,7 @@ async def _stream_scan_analysis_inner(
                 duplicate_salts=[d.model_dump(mode="json") for d in duplicate_salts],
                 allergy_alerts=[a.model_dump(mode="json") for a in allergy_alerts],
                 lifestyle_triggers=[t.model_dump(mode="json") for t in lifestyle_triggers],
+                active_recalls=[r.model_dump(mode="json") for r in active_recalls],
                 interactions=[i.model_dump(mode="json") for i in interactions],
                 clinical_summary=verified.summary.model_dump(mode="json"),
                 citations=[c.model_dump(mode="json") for c in verified.verified_citations],

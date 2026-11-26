@@ -40,6 +40,8 @@ data class ScanUiState(
     val isResolving: Boolean = false,
     val isCameraFrozen: Boolean = false,
     val resolveError: String? = null,
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
 )
 
 @HiltViewModel
@@ -132,6 +134,8 @@ class ScanViewModel @Inject constructor(
                 } else {
                     state.localSaltChips
                 },
+                frameWidth = if (result.frameWidth > 0) result.frameWidth else state.frameWidth,
+                frameHeight = if (result.frameHeight > 0) result.frameHeight else state.frameHeight,
             )
         }
 

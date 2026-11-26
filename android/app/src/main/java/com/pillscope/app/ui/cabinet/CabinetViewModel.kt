@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pillscope.app.data.remote.ApiCallError
 import com.pillscope.app.data.remote.dto.AllergyAlertDto
+import com.pillscope.app.data.remote.dto.AllergyEntryDto
 import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
@@ -67,6 +68,10 @@ class CabinetViewModel @Inject constructor(
         .flatMapLatest { profileId ->
             scheduleAndRecallRepository.observeRecalls(profileId)
         }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val activeProfileAllergies: StateFlow<List<AllergyEntryDto>> = profileRepository.observeActiveProfile()
+        .combine(profileRepository.selectedProfileId) { profile, _ -> profile.allergyEntries }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val cachedEvidence = profileRepository.selectedProfileId
@@ -189,6 +194,49 @@ class CabinetViewModel @Inject constructor(
 
     fun closeMedicationDetail() {
         _uiState.update { it.copy(selectedMedicationDetail = null, isLoadingDetail = false) }
+    }
+
+    fun updateMedicationDetails(id: String, displayName: String, dosageSchedule: String?) {
+        val profileId = profileRepository.selectedProfileId.value
+        viewModelScope.launch {
+            val result = cabinetRepository.updateMedicationDetails(
+                id = id,
+                displayName = displayName,
+                dosageSchedule = dosageSchedule,
+            )
+            if (result.updatedLocally) {
+                val refreshed = cabinetRepository.fetchMedicationDetail(id, profileId)
+                    ?: medications.value.firstOrNull { it.id == id }
+                if (result.syncedWithServer) {
+                    scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
+                }
+                val (banner, isError) = when {
+                    result.syncedWithServer -> "Updated ${displayName.trim()}" to false
+                    result.apiError is ApiCallError.Offline -> "Saved changes offline (pending sync)" to false
+                    result.apiError != null -> result.apiError.userMessage to true
+                    else -> "Saved changes offline (pending sync)" to false
+                }
+                _uiState.update {
+                    it.copy(
+                        selectedMedicationDetail = refreshed,
+                        statusBanner = banner,
+                        statusIsError = isError,
+                    )
+                }
+            } else if (result.apiError != null) {
+                _uiState.update {
+                    it.copy(statusBanner = result.apiError.userMessage, statusIsError = true)
+                }
+            }
+        }
+    }
+
+    fun resetForAccountChange() {
+        catalogSearchJob?.cancel()
+        customNodePositions.value = emptyMap()
+        selectedNodeId.value = null
+        selectedEdgeId.value = null
+        _uiState.value = CabinetUiState()
     }
 
     fun syncCabinet() {

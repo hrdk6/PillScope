@@ -19,9 +19,11 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    for ext in ("pgcrypto", "vector", "pg_trgm"):
+        op.execute(
+            f"DO $$ BEGIN CREATE EXTENSION IF NOT EXISTS {ext}; "
+            "EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;"
+        )
 
     op.create_table(
         "users",

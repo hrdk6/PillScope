@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -228,6 +229,17 @@ fun AuthScreen(
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Password,
                             imeAction = ImeAction.Done,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (!uiState.isSubmitting && email.isNotBlank() && password.isNotBlank()) {
+                                    if (selectedTab == AuthTab.SIGN_IN) {
+                                        viewModel.signIn(email, password)
+                                    } else {
+                                        viewModel.register(email, password, displayName)
+                                    }
+                                }
+                            },
                         ),
                         shape = RoundedCornerShape(14.dp),
                     )

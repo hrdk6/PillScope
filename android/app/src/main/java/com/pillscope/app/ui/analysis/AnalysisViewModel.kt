@@ -30,6 +30,9 @@ class AnalysisViewModel @Inject constructor(
 ) : ViewModel() {
     private val rawAnalysisState = MutableStateFlow(ScanAnalysisState())
     private val _lastRequest = MutableStateFlow<ScanAnalyzeRequestDto?>(null)
+    private val _savedScanKeys = MutableStateFlow<Set<String>>(emptySet())
+    val savedScanKeys: StateFlow<Set<String>> = _savedScanKeys.asStateFlow()
+
     val canRetry: StateFlow<Boolean> = _lastRequest
         .combine(rawAnalysisState) { req, _ -> req != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
@@ -85,5 +88,18 @@ class AnalysisViewModel @Inject constructor(
                 rawAnalysisState.value = cached
             }
         }
+    }
+
+    fun markScanSaved(scanKey: String) {
+        if (scanKey.isNotBlank()) {
+            _savedScanKeys.value = _savedScanKeys.value + scanKey
+        }
+    }
+
+    fun resetForAccountChange() {
+        streamJob?.cancel()
+        rawAnalysisState.value = ScanAnalysisState()
+        _lastRequest.value = null
+        _savedScanKeys.value = emptySet()
     }
 }

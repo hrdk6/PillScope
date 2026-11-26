@@ -54,6 +54,11 @@ class DoseAdherenceStore @Inject constructor(
         _takenKeys.value = current
     }
 
+    fun clearAll() {
+        prefs.edit().remove(KEY_TAKEN_SET).apply()
+        _takenKeys.value = emptySet()
+    }
+
     private fun loadTodayKeys(): Set<String> {
         val todayPrefix = "${LocalDate.now()}:"
         return prefs.getStringSet(KEY_TAKEN_SET, emptySet())

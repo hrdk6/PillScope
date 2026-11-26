@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool | None = None
     rate_limit_auth_per_minute: int = 20
     rate_limit_scan_per_minute: int = 30
+    rate_limit_api_per_minute: int = 120
     rate_limit_internal_per_minute: int = 10
+    trusted_proxy_ips: list[str] = Field(default_factory=list)
     privacy_policy_url: str = "https://api.pillscope.app/privacy"
     account_deletion_url: str = "https://api.pillscope.app/account-deletion"
 

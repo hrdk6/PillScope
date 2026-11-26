@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -140,12 +141,32 @@ private fun AuthenticatedPillScopeShell(
     var showProfileSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(user.id) {
-        profileViewModel.refreshProfiles()
+        scanViewModel.clearScanState()
+        analysisViewModel.resetForAccountChange()
+        cabinetViewModel.resetForAccountChange()
+        scheduleViewModel.resetForAccountChange()
+        profileViewModel.resetForAccountChange()
+        // Sync profiles sequentially BEFORE cabinet sync so offline profiles migrate
+        // to server UUIDs before pending medications are uploaded.
+        profileViewModel.refreshProfilesAndAwait()
         cabinetViewModel.syncCabinet()
     }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: Routes.SCAN
+    val openProfileSheet = {
+        authViewModel.refreshPendingOfflineStatus()
+        showProfileSheet = true
+    }
+    val navigateToTab: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     Scaffold(
         containerColor = PillScopeColors.SlateSurface,
@@ -168,7 +189,7 @@ private fun AuthenticatedPillScopeShell(
                             )
                             ActiveProfilePill(
                                 profile = activeProfile,
-                                onClick = { showProfileSheet = true },
+                                onClick = openProfileSheet,
                                 modifier = Modifier.padding(end = 12.dp),
                             )
                         }
@@ -180,41 +201,25 @@ private fun AuthenticatedPillScopeShell(
             NavigationBar(containerColor = PillScopeColors.CardSurface) {
                 NavigationBarItem(
                     selected = currentRoute == Routes.SCAN,
-                    onClick = {
-                        navController.navigate(Routes.SCAN) {
-                            launchSingleTop = true
-                        }
-                    },
+                    onClick = { navigateToTab(Routes.SCAN) },
                     icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Scan") },
                     label = { Text("Scan") },
                 )
                 NavigationBarItem(
                     selected = currentRoute == Routes.ANALYSIS,
-                    onClick = {
-                        navController.navigate(Routes.ANALYSIS) {
-                            launchSingleTop = true
-                        }
-                    },
+                    onClick = { navigateToTab(Routes.ANALYSIS) },
                     icon = { Icon(Icons.Default.HealthAndSafety, contentDescription = "Safety") },
                     label = { Text("Safety") },
                 )
                 NavigationBarItem(
                     selected = currentRoute == Routes.CABINET,
-                    onClick = {
-                        navController.navigate(Routes.CABINET) {
-                            launchSingleTop = true
-                        }
-                    },
+                    onClick = { navigateToTab(Routes.CABINET) },
                     icon = { Icon(Icons.Default.Medication, contentDescription = "Cabinet") },
                     label = { Text("Cabinet") },
                 )
                 NavigationBarItem(
                     selected = currentRoute == Routes.SCHEDULE,
-                    onClick = {
-                        navController.navigate(Routes.SCHEDULE) {
-                            launchSingleTop = true
-                        }
-                    },
+                    onClick = { navigateToTab(Routes.SCHEDULE) },
                     icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule") },
                     label = { Text("Schedule") },
                 )
@@ -230,22 +235,21 @@ private fun AuthenticatedPillScopeShell(
                 CameraScanScreen(
                     viewModel = scanViewModel,
                     activeProfile = activeProfile,
-                    onOpenProfileSwitcher = { showProfileSheet = true },
+                    onOpenProfileSwitcher = openProfileSheet,
                     onAnalyzeRequest = { req ->
                         analysisViewModel.startAnalysis(req)
-                        navController.navigate(Routes.ANALYSIS) {
-                            launchSingleTop = true
-                        }
+                        navigateToTab(Routes.ANALYSIS)
                     },
                 )
             }
             composable(Routes.ANALYSIS) {
                 ProgressiveAnalysisScreen(
                     viewModel = analysisViewModel,
-                    onAddToCabinet = { displayName, salts ->
+                    onAddToCabinet = { displayName, salts, dosageSchedule ->
                         cabinetViewModel.addMedicationFromScan(
                             displayName = displayName,
                             canonicalSalts = salts,
+                            dosageSchedule = dosageSchedule,
                         )
                     },
                 )
@@ -265,6 +269,7 @@ private fun AuthenticatedPillScopeShell(
             activeProfile = activeProfile,
             userEmail = user.email,
             offlineSession = offlineResumed,
+            hasPendingOfflineChanges = authUiState.hasPendingOfflineChanges,
             statusMessage = profileUiState.statusMessage,
             errorMessage = profileUiState.errorMessage,
             accountActionError = authUiState.accountActionError,

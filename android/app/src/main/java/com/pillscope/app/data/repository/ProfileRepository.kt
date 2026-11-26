@@ -94,6 +94,12 @@ class ProfileRepository @Inject constructor(
         }
     }
 
+    fun resetLocalSelection() {
+        _selectedProfileId.value = DefaultProfileIds.LOCAL_DEFAULT
+    }
+
+    suspend fun hasPendingSync(): Boolean = profileDao.getPendingSync().isNotEmpty()
+
     suspend fun ensureLocalDefaultProfile(): UserProfile {
         val existing = profileDao.getAllProfiles()
         if (existing.isNotEmpty()) {
@@ -199,29 +205,43 @@ class ProfileRepository @Inject constructor(
 
         // If the user added offline data under LOCAL_DEFAULT, migrate it to their server default profile.
         val localDefault = profileDao.getById(DefaultProfileIds.LOCAL_DEFAULT)
+        var effectiveServerDefault = serverDefault
         if (localDefault != null) {
             val localDefaultEntries = decodeAllergyEntries(localDefault.allergiesJson)
             if (localDefault.syncStatus == SyncStatus.PENDING_UPDATE && localDefaultEntries.isNotEmpty()) {
+                val serverEntries = decodeAllergyEntries(serverDefault.allergiesJson)
+                val mergedByKey = linkedMapOf<String, AllergyEntryDto>()
+                serverEntries.forEach { entry ->
+                    mergedByKey[entry.allergen.trim().lowercase()] = entry
+                }
+                localDefaultEntries.forEach { entry ->
+                    val key = entry.allergen.trim().lowercase()
+                    if (key.isNotEmpty() && key !in mergedByKey) {
+                        mergedByKey[key] = entry
+                    }
+                }
+                val mergedEntries = mergedByKey.values.toList()
                 runCatching {
                     api.updateProfile(
                         profileId = serverDefault.id,
                         body = ProfileUpdateRequestDto(
-                            allergiesJson = encodeAllergyElements(localDefaultEntries),
+                            allergiesJson = encodeAllergyElements(mergedEntries),
                         ),
                     )
                 }.onSuccess { updatedDefault ->
-                    profileDao.upsert(fromRemoteDto(updatedDefault, now))
+                    effectiveServerDefault = fromRemoteDto(updatedDefault, now)
                 }
             }
-            medicationDao.reassignProfileId(DefaultProfileIds.LOCAL_DEFAULT, serverDefault.id)
-            scanReportDao.reassignProfileId(DefaultProfileIds.LOCAL_DEFAULT, serverDefault.id)
+            medicationDao.reassignProfileId(DefaultProfileIds.LOCAL_DEFAULT, effectiveServerDefault.id)
+            scanReportDao.reassignProfileId(DefaultProfileIds.LOCAL_DEFAULT, effectiveServerDefault.id)
             profileDao.deleteById(DefaultProfileIds.LOCAL_DEFAULT)
         }
 
         // Preserve any still-pending local profiles instead of wiping them with clearAll().
+        val updatedEntities = entities.map { if (it.id == effectiveServerDefault.id) effectiveServerDefault else it }
         val stillPendingIds = profileDao.getPendingSync().map { it.id }.toSet()
         profileDao.clearSynced()
-        profileDao.upsertAll(entities.filter { it.id !in stillPendingIds })
+        profileDao.upsertAll(updatedEntities.filter { it.id !in stillPendingIds })
 
         val allAfter = profileDao.getAllProfiles()
         val currentSelected = _selectedProfileId.value
