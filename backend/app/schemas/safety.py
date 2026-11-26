@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.app.core.languages import normalize_language_code
 from backend.app.schemas.cabinet import DuplicateSaltAlert, RiskLevel
 from backend.app.schemas.lifestyle import LifestyleTrigger
 from backend.app.schemas.profiles import AllergyAlert
@@ -27,12 +28,14 @@ class ScanAnalyzeRequest(BaseModel):
     confirmed_salts: list[str] | None = Field(default=None, max_length=20)
     raw_ocr_text: str | None = Field(default=None, max_length=2000)
     country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    language: str = Field(default="en", min_length=2, max_length=16)
     edge_quality_metrics: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_query(self) -> "ScanAnalyzeRequest":
         if not self.submitted_query.strip():
             raise ValueError("submitted_query cannot be blank.")
+        self.language = normalize_language_code(self.language)
         if self.confirmed_salts is not None:
             for item in self.confirmed_salts:
                 if len(item) > 160:
@@ -86,6 +89,7 @@ class ClinicalSummary(BaseModel):
     cited_chunk_ids: list[UUID] = Field(default_factory=list)
     abstained: bool = False
     abstention_reason: str | None = None
+    language: str = "en"
     disclaimer: str = (
         "Informational safety check only; consult a licensed clinician or pharmacist "
         "before starting, stopping, or changing any medication."

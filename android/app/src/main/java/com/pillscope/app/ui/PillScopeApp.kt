@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,13 +53,21 @@ import androidx.navigation.compose.rememberNavController
 import com.pillscope.app.data.remote.dto.UserResponseDto
 import com.pillscope.app.data.repository.AuthRepository
 import com.pillscope.app.data.repository.AuthSessionState
+import com.pillscope.app.i18n.AppStringsCatalog
+import com.pillscope.app.i18n.LanguageViewModel
+import com.pillscope.app.i18n.LocalAppLanguage
+import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.analysis.AnalysisViewModel
 import com.pillscope.app.ui.analysis.ProgressiveAnalysisScreen
+import com.pillscope.app.ui.assistant.VoiceAssistantScreen
+import com.pillscope.app.ui.assistant.VoiceAssistantViewModel
 import com.pillscope.app.ui.auth.AuthScreen
 import com.pillscope.app.ui.auth.AuthViewModel
 import com.pillscope.app.ui.auth.OnboardingConsentScreen
 import com.pillscope.app.ui.cabinet.CabinetScreen
 import com.pillscope.app.ui.cabinet.CabinetViewModel
+import com.pillscope.app.ui.common.LanguageAndVoiceSheet
+import com.pillscope.app.ui.common.LanguagePillButton
 import com.pillscope.app.ui.profiles.ActiveProfilePill
 import com.pillscope.app.ui.profiles.ProfileSwitcherSheet
 import com.pillscope.app.ui.profiles.ProfileViewModel
@@ -65,10 +76,12 @@ import com.pillscope.app.ui.scan.ScanViewModel
 import com.pillscope.app.ui.schedule.ScheduleScreen
 import com.pillscope.app.ui.schedule.ScheduleViewModel
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.voice.VoiceNavTarget
 
 private object Routes {
     const val SCAN = "scan"
     const val ANALYSIS = "analysis"
+    const val ASSISTANT = "assistant"
     const val CABINET = "cabinet"
     const val SCHEDULE = "schedule"
 }
@@ -77,51 +90,82 @@ private object Routes {
 @Composable
 fun PillScopeApp() {
     val authViewModel: AuthViewModel = hiltViewModel()
+    val languageViewModel: LanguageViewModel = hiltViewModel()
     val sessionState by authViewModel.sessionState.collectAsStateWithLifecycle()
+    val selectedLanguage by languageViewModel.language.collectAsStateWithLifecycle()
+    val autoSpeakAnswers by languageViewModel.autoSpeakAnswers.collectAsStateWithLifecycle()
+    val speechRate by languageViewModel.speechRate.collectAsStateWithLifecycle()
+    val preferCloudVoice by languageViewModel.preferCloudVoice.collectAsStateWithLifecycle()
 
-    when (val session = sessionState) {
-        AuthSessionState.Loading -> {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = PillScopeColors.SlateSurface,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        LoadingIndicator(
-                            modifier = Modifier.size(44.dp),
-                            color = PillScopeColors.ClinicalTeal,
-                        )
-                        Text(
-                            text = "Loading PillScope…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = PillScopeColors.InkSecondary,
-                        )
+    var showLanguageSheet by remember { mutableStateOf(false) }
+    val appStrings = remember(selectedLanguage) { AppStringsCatalog.forLanguage(selectedLanguage) }
+
+    CompositionLocalProvider(
+        LocalAppLanguage provides selectedLanguage,
+        LocalAppStrings provides appStrings,
+    ) {
+        when (val session = sessionState) {
+            AuthSessionState.Loading -> {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = PillScopeColors.SlateSurface,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            LoadingIndicator(
+                                modifier = Modifier.size(44.dp),
+                                color = PillScopeColors.ClinicalTeal,
+                            )
+                            Text(
+                                text = appStrings.loadingApp,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = PillScopeColors.InkSecondary,
+                            )
+                        }
                     }
                 }
             }
+
+            AuthSessionState.NeedsConsent -> {
+                OnboardingConsentScreen(
+                    onAccept = authViewModel::acceptOnboardingConsent,
+                    onOpenLanguagePicker = { showLanguageSheet = true },
+                )
+            }
+
+            is AuthSessionState.Unauthenticated -> {
+                AuthScreen(
+                    viewModel = authViewModel,
+                    sessionNotice = session.notice,
+                    onOpenLanguagePicker = { showLanguageSheet = true },
+                )
+            }
+
+            is AuthSessionState.Authenticated -> {
+                AuthenticatedPillScopeShell(
+                    user = session.user,
+                    offlineResumed = session.offlineResumed,
+                    authViewModel = authViewModel,
+                    languageViewModel = languageViewModel,
+                    onOpenLanguagePicker = { showLanguageSheet = true },
+                )
+            }
         }
 
-        AuthSessionState.NeedsConsent -> {
-            OnboardingConsentScreen(
-                onAccept = authViewModel::acceptOnboardingConsent,
-            )
-        }
-
-        is AuthSessionState.Unauthenticated -> {
-            AuthScreen(
-                viewModel = authViewModel,
-                sessionNotice = session.notice,
-            )
-        }
-
-        is AuthSessionState.Authenticated -> {
-            AuthenticatedPillScopeShell(
-                user = session.user,
-                offlineResumed = session.offlineResumed,
-                authViewModel = authViewModel,
+        if (showLanguageSheet) {
+            LanguageAndVoiceSheet(
+                selectedLanguage = selectedLanguage,
+                autoSpeakAnswers = autoSpeakAnswers,
+                speechRate = speechRate,
+                preferCloudVoice = preferCloudVoice,
+                onSelectLanguage = languageViewModel::setLanguage,
+                onToggleAutoSpeak = languageViewModel::setAutoSpeakAnswers,
+                onChangeSpeechRate = languageViewModel::setSpeechRate,
+                onToggleCloudVoice = languageViewModel::setPreferCloudVoice,
+                onDismiss = { showLanguageSheet = false },
             )
         }
     }
@@ -133,11 +177,16 @@ private fun AuthenticatedPillScopeShell(
     user: UserResponseDto,
     offlineResumed: Boolean,
     authViewModel: AuthViewModel,
+    languageViewModel: LanguageViewModel,
+    onOpenLanguagePicker: () -> Unit,
 ) {
+    val strings = LocalAppStrings.current
+    val language = LocalAppLanguage.current
     val navController = rememberNavController()
     val profileViewModel: ProfileViewModel = hiltViewModel()
     val scanViewModel: ScanViewModel = hiltViewModel()
     val analysisViewModel: AnalysisViewModel = hiltViewModel()
+    val assistantViewModel: VoiceAssistantViewModel = hiltViewModel()
     val cabinetViewModel: CabinetViewModel = hiltViewModel()
     val scheduleViewModel: ScheduleViewModel = hiltViewModel()
 
@@ -148,22 +197,20 @@ private fun AuthenticatedPillScopeShell(
     val analysisState by analysisViewModel.state.collectAsStateWithLifecycle()
     val cabinetRecalls by cabinetViewModel.activeRecalls.collectAsStateWithLifecycle()
     val scheduleState by scheduleViewModel.schedule.collectAsStateWithLifecycle()
+    val speechState by languageViewModel.speechState.collectAsStateWithLifecycle()
 
     var showProfileSheet by remember { mutableStateOf(false) }
     val isOfflineGuest = user.id == AuthRepository.OFFLINE_GUEST_USER_ID
 
-    // Guard session initialization in AuthViewModel so Activity recreations (rotation, Dark Mode)
-    // preserve active scan & safety state while actual account changes still cleanly reset.
     LaunchedEffect(user.id) {
         if (!authViewModel.shouldInitializeSessionFor(user.id)) return@LaunchedEffect
         scanViewModel.clearScanState()
         analysisViewModel.resetForAccountChange()
+        assistantViewModel.resetForAccountChange()
         cabinetViewModel.resetForAccountChange()
         scheduleViewModel.resetForAccountChange()
         profileViewModel.resetForAccountChange()
         if (!isOfflineGuest) {
-            // Sync profiles sequentially BEFORE cabinet sync so offline profiles migrate
-            // to server UUIDs before pending medications are uploaded.
             profileViewModel.refreshProfilesAndAwait()
             cabinetViewModel.syncCabinet()
         }
@@ -182,6 +229,37 @@ private fun AuthenticatedPillScopeShell(
             }
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    val readScheduleAloudAction = {
+        val currentSchedule = scheduleState
+        if (currentSchedule == null || currentSchedule.slots.all { it.medications.isEmpty() }) {
+            languageViewModel.speak(strings.noDosesScheduledYet, language, "schedule_tts")
+        } else {
+            val spoken = buildString {
+                append(strings.dailyScheduleTitle).append(". ")
+                currentSchedule.slots.filter { it.medications.isNotEmpty() }.forEach { slot ->
+                    append(strings.slotLabel(slot.slot)).append(", ")
+                    append(slot.recommendedTime).append(": ")
+                    append(slot.medications.joinToString(", ") { it.displayName })
+                    append(". ")
+                }
+                if (currentSchedule.unresolvableClashes.isNotEmpty()) {
+                    append(strings.conflictsCannotResolve).append(". ")
+                }
+            }
+            languageViewModel.toggleSpeak(spoken, language, "schedule_tts")
+        }
+    }
+
+    val handleVoiceNavigate: (VoiceNavTarget) -> Unit = { target ->
+        when (target) {
+            VoiceNavTarget.SCAN -> navigateToTab(Routes.SCAN)
+            VoiceNavTarget.SAFETY -> navigateToTab(Routes.ANALYSIS)
+            VoiceNavTarget.ASK_AI -> navigateToTab(Routes.ASSISTANT)
+            VoiceNavTarget.CABINET -> navigateToTab(Routes.CABINET)
+            VoiceNavTarget.SCHEDULE -> navigateToTab(Routes.SCHEDULE)
         }
     }
 
@@ -217,15 +295,23 @@ private fun AuthenticatedPillScopeShell(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = "PillScope",
+                                text = strings.appName,
                                 style = MaterialTheme.typography.titleLarge,
                                 color = PillScopeColors.ClinicalTealDeep,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
-                            ActiveProfilePill(
-                                profile = activeProfile,
-                                onClick = openProfileSheet,
-                                modifier = Modifier.padding(end = 12.dp),
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(end = 8.dp),
+                            ) {
+                                LanguagePillButton(onClick = onOpenLanguagePicker)
+                                ActiveProfilePill(
+                                    profile = activeProfile,
+                                    onClick = openProfileSheet,
+                                )
+                            }
                         }
                     },
                 )
@@ -236,8 +322,8 @@ private fun AuthenticatedPillScopeShell(
                 NavigationBarItem(
                     selected = currentRoute == Routes.SCAN,
                     onClick = { navigateToTab(Routes.SCAN) },
-                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = "Scan") },
-                    label = { Text("Scan") },
+                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = strings.navScan) },
+                    label = { Text(strings.navScan, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
                 NavigationBarItem(
                     selected = currentRoute == Routes.ANALYSIS,
@@ -250,10 +336,16 @@ private fun AuthenticatedPillScopeShell(
                                 }
                             },
                         ) {
-                            Icon(Icons.Default.HealthAndSafety, contentDescription = "Safety")
+                            Icon(Icons.Default.HealthAndSafety, contentDescription = strings.navSafety)
                         }
                     },
-                    label = { Text("Safety") },
+                    label = { Text(strings.navSafety, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                )
+                NavigationBarItem(
+                    selected = currentRoute == Routes.ASSISTANT,
+                    onClick = { navigateToTab(Routes.ASSISTANT) },
+                    icon = { Icon(Icons.Default.Mic, contentDescription = strings.navAskAi) },
+                    label = { Text(strings.navAskAi, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
                 NavigationBarItem(
                     selected = currentRoute == Routes.CABINET,
@@ -271,10 +363,10 @@ private fun AuthenticatedPillScopeShell(
                                 }
                             },
                         ) {
-                            Icon(Icons.Default.Medication, contentDescription = "Cabinet")
+                            Icon(Icons.Default.Medication, contentDescription = strings.navCabinet)
                         }
                     },
-                    label = { Text("Cabinet") },
+                    label = { Text(strings.navCabinet, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
                 NavigationBarItem(
                     selected = currentRoute == Routes.SCHEDULE,
@@ -287,10 +379,10 @@ private fun AuthenticatedPillScopeShell(
                                 }
                             },
                         ) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule")
+                            Icon(Icons.Default.CalendarMonth, contentDescription = strings.navSchedule)
                         }
                     },
-                    label = { Text("Schedule") },
+                    label = { Text(strings.navSchedule, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
             }
         },
@@ -327,6 +419,12 @@ private fun AuthenticatedPillScopeShell(
                         viewModel = scanViewModel,
                         activeProfile = activeProfile,
                         onOpenProfileSwitcher = openProfileSheet,
+                        onOpenLanguagePicker = onOpenLanguagePicker,
+                        onVoiceNavigate = handleVoiceNavigate,
+                        onVoiceAskAi = { question ->
+                            navigateToTab(Routes.ASSISTANT)
+                            assistantViewModel.askQuestion(question, triggeredByVoice = true)
+                        },
                         onAnalyzeRequest = { req ->
                             analysisViewModel.startAnalysis(req)
                             navigateToTab(Routes.ANALYSIS)
@@ -337,12 +435,35 @@ private fun AuthenticatedPillScopeShell(
                     ProgressiveAnalysisScreen(
                         viewModel = analysisViewModel,
                         onNavigateToScan = { navigateToTab(Routes.SCAN) },
+                        onAskAiAboutScan = { scanId, medicineName, salts ->
+                            assistantViewModel.setMedicineContext(scanId, medicineName, salts)
+                            navigateToTab(Routes.ASSISTANT)
+                        },
                         onAddToCabinet = { displayName, salts, dosageSchedule ->
                             cabinetViewModel.addMedicationFromScan(
                                 displayName = displayName,
                                 canonicalSalts = salts,
                                 dosageSchedule = dosageSchedule,
                             )
+                        },
+                    )
+                }
+                composable(Routes.ASSISTANT) {
+                    VoiceAssistantScreen(
+                        viewModel = assistantViewModel,
+                        onVoiceNavigate = handleVoiceNavigate,
+                        onVoiceSwitchLanguage = languageViewModel::setLanguage,
+                        onVoiceSearchMedicine = { query ->
+                            scanViewModel.onManualQueryChange(query)
+                            navigateToTab(Routes.SCAN)
+                        },
+                        onVoiceReadSafetyReport = {
+                            navigateToTab(Routes.ANALYSIS)
+                            analysisViewModel.speakCurrentReport()
+                        },
+                        onVoiceReadSchedule = {
+                            navigateToTab(Routes.SCHEDULE)
+                            readScheduleAloudAction()
                         },
                     )
                 }
@@ -359,6 +480,8 @@ private fun AuthenticatedPillScopeShell(
                     ScheduleScreen(
                         viewModel = scheduleViewModel,
                         onOpenCabinet = { navigateToTab(Routes.CABINET) },
+                        isSpeakingSchedule = speechState.isSpeaking && speechState.activeUtteranceId == "schedule_tts",
+                        onReadScheduleAloud = readScheduleAloudAction,
                     )
                 }
             }
@@ -377,6 +500,10 @@ private fun AuthenticatedPillScopeShell(
             errorMessage = profileUiState.errorMessage,
             accountActionError = authUiState.accountActionError,
             isDeletingAccount = authUiState.isDeletingAccount,
+            onOpenLanguagePicker = {
+                showProfileSheet = false
+                onOpenLanguagePicker()
+            },
             onSelectProfile = { id ->
                 profileViewModel.selectProfile(id)
                 showProfileSheet = false
@@ -421,6 +548,7 @@ private fun OfflineSessionStrip(
     onActionClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
@@ -447,9 +575,9 @@ private fun OfflineSessionStrip(
                 )
                 Text(
                     text = if (isOfflineGuest) {
-                        "Offline mode — on-device scanner & allergy check active"
+                        strings.offlineGuestStrip
                     } else {
-                        "Offline mode — showing cached cabinet & reports"
+                        strings.offlineCachedStrip
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = PillScopeColors.ModerateAmberDark,
@@ -457,7 +585,7 @@ private fun OfflineSessionStrip(
             }
             TextButton(onClick = onActionClick) {
                 Text(
-                    text = if (isOfflineGuest) "Sign in" else "Retry sync",
+                    text = if (isOfflineGuest) strings.signInAction else strings.retrySyncAction,
                     color = PillScopeColors.ModerateAmberDark,
                 )
             }

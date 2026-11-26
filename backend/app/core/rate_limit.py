@@ -38,10 +38,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return "auth", self._settings.rate_limit_auth_per_minute
         if path == "/api/v1/scans/analyze":
             return "scan", self._settings.rate_limit_scan_per_minute
+        if path.startswith("/api/v1/assistant/"):
+            return "assistant", self._settings.rate_limit_assistant_per_minute
         if path.startswith("/api/v1/internal/"):
             return "internal", self._settings.rate_limit_internal_per_minute
         if path.startswith(
-            ("/api/v1/drugs/", "/api/v1/cabinet/", "/api/v1/profiles", "/api/v1/scans")
+            (
+                "/api/v1/drugs/",
+                "/api/v1/cabinet/",
+                "/api/v1/profiles",
+                "/api/v1/scans",
+                "/api/v1/assistant",
+            )
         ):
             return "api", self._settings.rate_limit_api_per_minute
         return None

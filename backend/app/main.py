@@ -4,7 +4,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import auth, cabinet, drugs, health, internal, legal, profiles, scans
+from backend.app.api import (
+    assistant,
+    auth,
+    cabinet,
+    drugs,
+    health,
+    internal,
+    legal,
+    profiles,
+    scans,
+)
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.rate_limit import RateLimitMiddleware
@@ -57,6 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(drugs.router)
     app.include_router(cabinet.router)
     app.include_router(scans.router)
+    app.include_router(assistant.router)
     if resolved_settings.enable_internal_routes:
         app.include_router(internal.router)
     return app

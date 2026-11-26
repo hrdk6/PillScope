@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">PillScope</string>
+    <string name="app_tagline">Medication safety &amp; voice copilot</string>
 </resources>

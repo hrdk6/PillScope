@@ -1,5 +1,8 @@
 package com.pillscope.app.data.remote
 
+import com.pillscope.app.data.remote.dto.AssistantAskRequestDto
+import com.pillscope.app.data.remote.dto.AssistantAskResponseDto
+import com.pillscope.app.data.remote.dto.AssistantTtsRequestDto
 import com.pillscope.app.data.remote.dto.AuthResponseDto
 import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.DrugResolveRequestDto
@@ -21,8 +24,10 @@ import com.pillscope.app.data.remote.dto.RefreshRequestDto
 import com.pillscope.app.data.remote.dto.RegisterRequestDto
 import com.pillscope.app.data.remote.dto.ScanLogListResponseDto
 import com.pillscope.app.data.remote.dto.ScanLogResponseDto
+import com.pillscope.app.data.remote.dto.SupportedLanguagesResponseDto
 import com.pillscope.app.data.remote.dto.TokenResponseDto
 import com.pillscope.app.data.remote.dto.UserResponseDto
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -130,4 +135,13 @@ interface PillScopeApi {
 
     @GET("api/v1/scans/{scan_id}")
     suspend fun getScan(@Path("scan_id") scanId: String): ScanLogResponseDto
+
+    @GET("api/v1/assistant/languages")
+    suspend fun listSupportedLanguages(): SupportedLanguagesResponseDto
+
+    @POST("api/v1/assistant/ask")
+    suspend fun askAssistant(@Body body: AssistantAskRequestDto): AssistantAskResponseDto
+
+    @POST("api/v1/assistant/tts")
+    suspend fun synthesizeAssistantSpeech(@Body body: AssistantTtsRequestDto): Response<ResponseBody>
 }

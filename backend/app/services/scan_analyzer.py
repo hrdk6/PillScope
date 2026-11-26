@@ -478,6 +478,7 @@ async def _stream_scan_analysis_inner(
             interactions=interactions,
             citations=retrieved_citations,
             allergy_alerts=allergy_alerts,
+            language=request.language,
         )
 
         llm_start = time.perf_counter()

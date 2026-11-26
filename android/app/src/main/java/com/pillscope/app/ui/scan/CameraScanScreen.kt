@@ -51,10 +51,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -111,14 +113,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
 import com.pillscope.app.data.repository.UserProfile
+import com.pillscope.app.i18n.LocalAppLanguage
+import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ml.FrameQualityResult
 import com.pillscope.app.ml.MedicineLabelAnalyzer
 import com.pillscope.app.ml.NormalizedCropRect
 import com.pillscope.app.ml.OcrTextBlockBox
+import com.pillscope.app.ui.common.LanguagePillButton
 import com.pillscope.app.ui.common.formatSaltComponents
 import com.pillscope.app.ui.profiles.ActiveProfilePill
 import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.voice.VoiceCommand
+import com.pillscope.app.voice.VoiceCommandParser
+import com.pillscope.app.voice.VoiceNavTarget
+import com.pillscope.app.voice.rememberVoiceInputController
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -135,15 +144,42 @@ fun CameraScanScreen(
     viewModel: ScanViewModel,
     activeProfile: UserProfile,
     onOpenProfileSwitcher: () -> Unit,
+    onOpenLanguagePicker: () -> Unit = {},
+    onVoiceNavigate: (VoiceNavTarget) -> Unit = {},
+    onVoiceAskAi: (String) -> Unit = {},
     onAnalyzeRequest: (ScanAnalyzeRequestDto) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
+    val language = LocalAppLanguage.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
+
+    val voiceSearch = rememberVoiceInputController(
+        language = language,
+        promptText = strings.voiceSearchTooltip,
+        onResult = { spoken ->
+            val trimmed = spoken.trim()
+            if (trimmed.isEmpty()) return@rememberVoiceInputController
+            when (val cmd = VoiceCommandParser.parse(trimmed)) {
+                is VoiceCommand.Navigate -> onVoiceNavigate(cmd.target)
+                is VoiceCommand.SearchMedicine -> viewModel.onManualQueryChange(cmd.query)
+                else -> {
+                    // Short 1-3 word medicine name -> fill search box; longer sentence -> ask Voice AI!
+                    val wordCount = trimmed.split(Regex("\\s+")).size
+                    if (wordCount <= 3 && !trimmed.contains("?")) {
+                        viewModel.onManualQueryChange(trimmed)
+                    } else {
+                        onVoiceAskAi(trimmed)
+                    }
+                }
+            }
+        },
+    )
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -261,9 +297,9 @@ fun CameraScanScreen(
                     Spacer(Modifier.height(10.dp))
                     Text(
                         text = if (isPermanentlyDenied) {
-                            "Camera permission is disabled. Open App Settings to enable live scanning, or search below."
+                            strings.cameraPermissionDisabled
                         } else {
-                            "Enable camera access to scan medicine labels on-device. Photos never leave your phone."
+                            strings.cameraPermissionRationale
                         },
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
@@ -280,11 +316,11 @@ fun CameraScanScreen(
                                 runCatching { context.startActivity(intent) }
                             },
                         ) {
-                            Text("Open App Settings")
+                            Text(strings.openAppSettings)
                         }
                     } else {
                         Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                            Text("Enable camera")
+                            Text(strings.enableCamera)
                         }
                     }
                 }
@@ -337,11 +373,20 @@ fun CameraScanScreen(
                     }
                 }
 
-                ActiveProfilePill(
-                    profile = activeProfile,
-                    onClick = onOpenProfileSwitcher,
-                    darkSurface = true,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    LanguagePillButton(
+                        onClick = onOpenLanguagePicker,
+                        darkSurface = true,
+                    )
+                    ActiveProfilePill(
+                        profile = activeProfile,
+                        onClick = onOpenProfileSwitcher,
+                        darkSurface = true,
+                    )
+                }
             }
 
             if (hasCameraPermission) {
@@ -377,7 +422,7 @@ fun CameraScanScreen(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 ) {
                                     Text(
-                                        text = "Force scan",
+                                        text = strings.forceScan,
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onPrimary,
                                     )
@@ -518,7 +563,7 @@ fun CameraScanScreen(
                     activeContainerColor = PillScopeColors.ClinicalTealContainer,
                     activeContentColor = PillScopeColors.ClinicalTealDeep,
                 ),
-                label = { Text("Save to History") },
+                label = { Text(strings.saveToHistory) },
             )
             SegmentedButton(
                 selected = state.scanMode == ScanMode.CHECK_BEFORE_BUYING,
@@ -528,7 +573,7 @@ fun CameraScanScreen(
                     activeContainerColor = PillScopeColors.ModerateAmberSurface,
                     activeContentColor = PillScopeColors.ModerateAmberDark,
                 ),
-                label = { Text("Quick Check") },
+                label = { Text(strings.quickCheck) },
             )
         }
 
@@ -540,33 +585,58 @@ fun CameraScanScreen(
                 .fillMaxWidth()
                 .onFocusChanged { viewModel.onSearchFocusChanged(it.isFocused) },
             singleLine = true,
-            label = { Text("Search medicine brand or generic salt") },
-            supportingText = if (queryTrimmedLen in 1..2) {
-                { Text("Type at least 3 characters for brand suggestions, or tap Analyze below.") }
+            label = { Text(strings.searchMedicineLabel) },
+            supportingText = if (voiceSearch.isListening) {
+                { Text(voiceSearch.partialTranscript.ifBlank { strings.listeningNow }) }
+            } else if (voiceSearch.errorMessage != null) {
+                { Text(voiceSearch.errorMessage.orEmpty()) }
+            } else if (queryTrimmedLen in 1..2) {
+                { Text(strings.searchSupportingHint) }
             } else {
                 null
             },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
-                when {
-                    state.isResolving -> LoadingIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = PillScopeColors.ClinicalTeal,
-                    )
-                    state.manualQuery.isNotEmpty() -> IconButton(
-                        onClick = viewModel::clearManualSearchOnly,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear search",
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    when {
+                        state.isResolving -> LoadingIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = PillScopeColors.ClinicalTeal,
                         )
+                        state.manualQuery.isNotEmpty() -> IconButton(
+                            onClick = viewModel::clearManualSearchOnly,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = strings.close,
+                            )
+                        }
+                        state.rawOcrText.isNotEmpty() -> IconButton(
+                            onClick = viewModel::clearScanState,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = strings.close,
+                            )
+                        }
                     }
-                    state.rawOcrText.isNotEmpty() -> IconButton(
-                        onClick = viewModel::clearScanState,
+                    IconButton(
+                        onClick = {
+                            if (voiceSearch.isListening) {
+                                voiceSearch.stopListening()
+                            } else {
+                                voiceSearch.startListening()
+                            }
+                        },
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear scanned label",
+                            imageVector = if (voiceSearch.isListening) Icons.Default.Stop else Icons.Default.Mic,
+                            contentDescription = strings.voiceSearchTooltip,
+                            tint = if (voiceSearch.isListening) {
+                                PillScopeColors.CriticalCrimson
+                            } else {
+                                PillScopeColors.ClinicalTeal
+                            },
                         )
                     }
                 }
@@ -592,7 +662,7 @@ fun CameraScanScreen(
 
         if (state.resolvedCandidates.isNotEmpty()) {
             Text(
-                text = "Tap a match to run safety check",
+                text = strings.tapMatchToCheck,
                 style = MaterialTheme.typography.titleMedium,
                 color = PillScopeColors.InkPrimary,
             )
@@ -616,12 +686,12 @@ fun CameraScanScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Detected active ingredients",
+                    text = strings.detectedIngredients,
                     style = MaterialTheme.typography.titleMedium,
                     color = PillScopeColors.InkPrimary,
                 )
                 TextButton(onClick = viewModel::clearScanState) {
-                    Text("Rescan")
+                    Text(strings.rescan)
                 }
             }
             FlowRow(
@@ -667,8 +737,7 @@ fun CameraScanScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
             ) {
-                val count = state.localSaltChips.size
-                Text("Check $count detected ${if (count == 1) "ingredient" else "ingredients"}")
+                Text("${strings.checkDetectedIngredients} (${state.localSaltChips.size})")
             }
         }
 
@@ -681,9 +750,9 @@ fun CameraScanScreen(
                 shape = RoundedCornerShape(18.dp),
             ) {
                 val actionPrefix = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
-                    "Quick check"
+                    strings.quickCheckForPrefix
                 } else {
-                    "Check safety for"
+                    strings.checkSafetyForPrefix
                 }
                 Text("$actionPrefix \"${state.manualQuery.trim()}\"")
             }
@@ -905,6 +974,7 @@ private fun QualityHudStatusPill(
     isCameraFrozen: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val isOk = quality?.isAcceptable == true || isForcedCaptureHeld
     val accent = when {
         isForcedCaptureHeld -> PillScopeColors.HudEmeraldLock
@@ -914,12 +984,12 @@ private fun QualityHudStatusPill(
         else -> PillScopeColors.HudAmberGlow
     }
     val statusText = when {
-        isForcedCaptureHeld -> "Frame captured — tap Play to resume"
-        isCameraFrozen -> "Camera paused — tap Play to resume"
-        quality == null -> "Align medicine label inside brackets"
-        quality.glareRatio > FrameQualityResult.MAX_GLARE_RATIO -> "Hold steady — glare detected"
-        quality.blurScore < FrameQualityResult.MIN_BLUR_SHARPNESS -> "Too blurry — tap to focus"
-        else -> "Sharp focus locked (${(quality.blurScore * 100).roundToInt()}%)"
+        isForcedCaptureHeld -> strings.hudFrameCaptured
+        isCameraFrozen -> strings.hudCameraPaused
+        quality == null -> strings.hudAlignLabel
+        quality.glareRatio > FrameQualityResult.MAX_GLARE_RATIO -> strings.hudGlareDetected
+        quality.blurScore < FrameQualityResult.MIN_BLUR_SHARPNESS -> strings.hudTooBlurry
+        else -> "${strings.hudSharpFocus} (${(quality.blurScore * 100).roundToInt()}%)"
     }
 
     Surface(
@@ -989,7 +1059,11 @@ private fun BrandConfirmationChipCard(
                     },
                 ) {
                     Text(
-                        text = if (scanMode == ScanMode.CHECK_BEFORE_BUYING) "Quick check" else "Check safety",
+                        text = if (scanMode == ScanMode.CHECK_BEFORE_BUYING) {
+                            LocalAppStrings.current.quickCheck
+                        } else {
+                            LocalAppStrings.current.checkSafety
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = if (scanMode == ScanMode.CHECK_BEFORE_BUYING) {
                             PillScopeColors.ModerateAmberDark

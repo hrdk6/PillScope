@@ -7,6 +7,7 @@ import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
 import com.pillscope.app.data.repository.ProfileRepository
 import com.pillscope.app.data.repository.ScanRepository
+import com.pillscope.app.i18n.LanguagePreferenceStore
 import com.pillscope.app.ml.CameraPipelineResult
 import com.pillscope.app.ml.FrameQualityResult
 import com.pillscope.app.ml.LiteRtLabelPreprocessor
@@ -50,6 +51,7 @@ data class ScanUiState(
 class ScanViewModel @Inject constructor(
     private val scanRepository: ScanRepository,
     private val profileRepository: ProfileRepository,
+    private val languageStore: LanguagePreferenceStore,
     val preprocessor: LiteRtLabelPreprocessor,
     val ocrEngine: MlKitOcrEngine,
 ) : ViewModel() {
@@ -230,6 +232,7 @@ class ScanViewModel @Inject constructor(
             submittedQuery = candidate.brandName,
             confirmedSalts = candidate.canonicalSaltKeys,
             rawOcrText = if (isCamera) state.rawOcrText.takeIf { it.isNotBlank() } else null,
+            language = languageStore.currentLanguage.code,
             edgeQualityMetrics = if (isCamera) state.latestQuality?.toMetricsDto() else null,
         )
     }
@@ -247,6 +250,7 @@ class ScanViewModel @Inject constructor(
             submittedQuery = query,
             confirmedSalts = salts.takeIf { it.isNotEmpty() },
             rawOcrText = state.rawOcrText.takeIf { it.isNotBlank() },
+            language = languageStore.currentLanguage.code,
             edgeQualityMetrics = state.latestQuality?.toMetricsDto(),
         )
     }
@@ -262,6 +266,7 @@ class ScanViewModel @Inject constructor(
                 persist = state.scanMode.persistToServer,
                 inputMode = "MANUAL_TEXT",
                 submittedQuery = manual,
+                language = languageStore.currentLanguage.code,
             )
         }
         val ocrFallback = state.rawOcrText.trim().lineSequence().firstOrNull()?.take(64).orEmpty()
@@ -272,6 +277,7 @@ class ScanViewModel @Inject constructor(
                 inputMode = "CAMERA_OCR",
                 submittedQuery = ocrFallback,
                 rawOcrText = state.rawOcrText,
+                language = languageStore.currentLanguage.code,
                 edgeQualityMetrics = state.latestQuality?.toMetricsDto(),
             )
         }

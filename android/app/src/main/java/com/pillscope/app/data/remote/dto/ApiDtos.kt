@@ -373,6 +373,7 @@ data class ScanAnalyzeRequestDto(
     @SerialName("confirmed_salts") val confirmedSalts: List<String>? = null,
     @SerialName("raw_ocr_text") val rawOcrText: String? = null,
     @SerialName("country_code") val countryCode: String? = null,
+    val language: String = "en",
     @SerialName("edge_quality_metrics") val edgeQualityMetrics: EdgeQualityMetricsDto? = null,
 )
 
@@ -424,6 +425,7 @@ data class ClinicalSummaryDto(
     @SerialName("cited_chunk_ids") val citedChunkIds: List<String> = emptyList(),
     val abstained: Boolean = false,
     @SerialName("abstention_reason") val abstentionReason: String? = null,
+    val language: String = "en",
     val disclaimer: String = "",
 )
 
@@ -536,4 +538,58 @@ data class ScanLogListResponseDto(
     val total: Int = 0,
     val limit: Int = 20,
     val offset: Int = 0,
+)
+
+@Serializable
+data class SupportedLanguageInfoDto(
+    val code: String,
+    val bcp47: String,
+    @SerialName("english_name") val englishName: String,
+    @SerialName("native_name") val nativeName: String,
+    @SerialName("script_name") val scriptName: String = "",
+)
+
+@Serializable
+data class SupportedLanguagesResponseDto(
+    @SerialName("default_language") val defaultLanguage: String = "en",
+    val languages: List<SupportedLanguageInfoDto> = emptyList(),
+)
+
+@Serializable
+data class AssistantTurnDto(
+    val role: String,
+    val text: String,
+)
+
+@Serializable
+data class AssistantAskRequestDto(
+    val question: String,
+    val language: String = "en",
+    @SerialName("profile_id") val profileId: String? = null,
+    @SerialName("scan_id") val scanId: String? = null,
+    @SerialName("context_medicine_name") val contextMedicineName: String? = null,
+    @SerialName("context_salts") val contextSalts: List<String> = emptyList(),
+    @SerialName("conversation_history") val conversationHistory: List<AssistantTurnDto> = emptyList(),
+)
+
+@Serializable
+data class AssistantAskResponseDto(
+    @SerialName("answer_text") val answerText: String,
+    @SerialName("spoken_text") val spokenText: String,
+    val language: String = "en",
+    @SerialName("bcp47_locale") val bcp47Locale: String = "en-IN",
+    @SerialName("overall_risk") val overallRisk: String = "NONE",
+    @SerialName("safety_banner_locked") val safetyBannerLocked: Boolean = false,
+    @SerialName("referenced_salts") val referencedSalts: List<String> = emptyList(),
+    @SerialName("suggested_followups") val suggestedFollowups: List<String> = emptyList(),
+    val citations: List<MonographCitationDto> = emptyList(),
+    val disclaimer: String = "",
+    val provider: String = "deterministic_grounded",
+)
+
+@Serializable
+data class AssistantTtsRequestDto(
+    val text: String,
+    val language: String = "en",
+    val voice: String? = null,
 )

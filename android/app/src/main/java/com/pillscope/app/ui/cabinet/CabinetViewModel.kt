@@ -17,6 +17,7 @@ import com.pillscope.app.data.repository.CabinetSyncReport
 import com.pillscope.app.data.repository.ProfileRepository
 import com.pillscope.app.data.repository.ScanRepository
 import com.pillscope.app.data.repository.ScheduleAndRecallRepository
+import com.pillscope.app.i18n.LanguagePreferenceStore
 import com.pillscope.app.ui.common.normalizeSaltInput
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,6 +61,7 @@ class CabinetViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val scanRepository: ScanRepository,
     private val scheduleAndRecallRepository: ScheduleAndRecallRepository,
+    private val languageStore: LanguagePreferenceStore,
 ) : ViewModel() {
     val medications: StateFlow<List<CabinetMedication>> = profileRepository.selectedProfileId
         .flatMapLatest { profileId ->
@@ -200,6 +202,7 @@ class CabinetViewModel @Inject constructor(
             inputMode = "MANUAL_TEXT",
             submittedQuery = targetMed.displayName,
             confirmedSalts = targetMed.canonicalSaltKeys,
+            language = languageStore.currentLanguage.code,
         )
     }
 

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -69,6 +70,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pillscope.app.BuildConfig
 import com.pillscope.app.data.repository.UserProfile
+import com.pillscope.app.i18n.LocalAppLanguage
+import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
 
@@ -179,6 +182,7 @@ fun ProfileSwitcherSheet(
     errorMessage: String?,
     accountActionError: String?,
     isDeletingAccount: Boolean,
+    onOpenLanguagePicker: () -> Unit = {},
     onSelectProfile: (String) -> Unit,
     onCreateProfile: (name: String, relationship: String, allergies: List<String>) -> Unit,
     onEditProfile: (profileId: String, name: String, relationship: String, setAsDefault: Boolean?) -> Unit,
@@ -189,6 +193,8 @@ fun ProfileSwitcherSheet(
     onDeleteAccount: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = LocalAppStrings.current
+    val language = LocalAppLanguage.current
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
@@ -264,15 +270,62 @@ fun ProfileSwitcherSheet(
         ) {
             Column {
                 Text(
-                    text = "Family profiles & account",
+                    text = strings.familyProfilesTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     color = PillScopeColors.InkPrimary,
                 )
                 Text(
-                    text = "Cabinets, schedules, and allergies stay isolated per person.",
+                    text = strings.familyProfilesSubtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.InkSecondary,
                 )
+            }
+
+            // Quick Language & Voice access row inside Profile & Settings sheet
+            Surface(
+                onClick = onOpenLanguagePicker,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = PillScopeColors.ClinicalTealContainer.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.4f)),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Translate,
+                            contentDescription = null,
+                            tint = PillScopeColors.ClinicalTealDeep,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Column {
+                            Text(
+                                text = strings.chooseLanguageTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = PillScopeColors.ClinicalTealDeep,
+                            )
+                            Text(
+                                text = "${language.nativeName} · ${language.englishName}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PillScopeColors.ClinicalTeal,
+                            )
+                        }
+                    }
+                    Text(
+                        text = strings.languageLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PillScopeColors.ClinicalTealDeep,
+                    )
+                }
             }
 
             statusMessage?.takeIf { it.isNotBlank() }?.let { msg ->
@@ -525,7 +578,7 @@ fun ProfileSwitcherSheet(
                             modifier = Modifier.size(18.dp),
                         )
                         Text(
-                            text = "Drug allergies for ${activeProfile.name}",
+                            text = "${strings.drugAllergiesTitle} · ${activeProfile.name}",
                             style = MaterialTheme.typography.titleMedium,
                             color = PillScopeColors.InkPrimary,
                         )
@@ -536,7 +589,7 @@ fun ProfileSwitcherSheet(
                             color = PillScopeColors.ModerateAmberSurface,
                         ) {
                             Text(
-                                text = "Unsaved",
+                                text = strings.unsavedBadge,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = PillScopeColors.ModerateAmberDark,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -630,7 +683,7 @@ fun ProfileSwitcherSheet(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text(if (hasUnsavedAllergyChanges) "Save allergy changes" else "Allergies up to date")
+                    Text(if (hasUnsavedAllergyChanges) strings.saveAllergyChanges else strings.allergiesUpToDate)
                 }
             }
 
@@ -644,7 +697,7 @@ fun ProfileSwitcherSheet(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
-                    Text("Add family profile")
+                    Text(strings.addFamilyProfile)
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -714,7 +767,7 @@ fun ProfileSwitcherSheet(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Account & privacy",
+                    text = strings.accountAndPrivacy,
                     style = MaterialTheme.typography.titleMedium,
                     color = PillScopeColors.InkPrimary,
                 )
@@ -780,7 +833,7 @@ fun ProfileSwitcherSheet(
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.size(6.dp))
-                            Text("Sign Out")
+                            Text(strings.signOut)
                         }
                         Button(
                             onClick = {
@@ -807,7 +860,7 @@ fun ProfileSwitcherSheet(
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Spacer(Modifier.size(4.dp))
-                                Text("Delete Account")
+                                Text(strings.deleteAccount)
                             }
                         }
                     }

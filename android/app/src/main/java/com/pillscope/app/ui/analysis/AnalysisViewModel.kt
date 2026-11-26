@@ -11,6 +11,10 @@ import com.pillscope.app.data.repository.ScanAnalysisState
 import com.pillscope.app.data.repository.ScanRepository
 import com.pillscope.app.data.repository.ScheduleAndRecallRepository
 import com.pillscope.app.data.repository.UserProfile
+import com.pillscope.app.i18n.AppLanguage
+import com.pillscope.app.i18n.LanguagePreferenceStore
+import com.pillscope.app.voice.MultilingualSpeechSpeaker
+import com.pillscope.app.voice.SpeechPlaybackState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -31,7 +35,10 @@ class AnalysisViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val cabinetRepository: CabinetRepository,
     private val scheduleAndRecallRepository: ScheduleAndRecallRepository,
+    private val languageStore: LanguagePreferenceStore,
+    private val speechSpeaker: MultilingualSpeechSpeaker,
 ) : ViewModel() {
+    val speechState: StateFlow<SpeechPlaybackState> = speechSpeaker.state
     private val rawAnalysisState = MutableStateFlow(ScanAnalysisState())
     private val _lastRequest = MutableStateFlow<ScanAnalyzeRequestDto?>(null)
     // Maps scanKey -> (savedDisplayNameLower, savedCanonicalSaltSet) so deletion from Cabinet
@@ -132,14 +139,88 @@ class AnalysisViewModel @Inject constructor(
     }
 
     fun startAnalysis(request: ScanAnalyzeRequestDto) {
-        _lastRequest.value = request
+        val localizedRequest = request.copy(language = languageStore.currentLanguage.code)
+        _lastRequest.value = localizedRequest
+        speechSpeaker.stop()
         streamJob?.cancel()
+        var spokeForStream = false
         streamJob = viewModelScope.launch {
-            scanRepository.analyzeMedicineStream(request).collect { updated ->
+            scanRepository.analyzeMedicineStream(localizedRequest).collect { updated ->
                 rawAnalysisState.value = updated
+                if (!spokeForStream &&
+                    updated.stage == com.pillscope.app.data.repository.AnalysisStage.COMPLETE &&
+                    languageStore.autoSpeakAnswers.value
+                ) {
+                    spokeForStream = true
+                    speakCurrentReport(updated)
+                }
             }
         }
     }
+
+    fun toggleSpeakCurrentReport() {
+        val current = state.value
+        val utteranceId = "report_${current.scanId ?: current.submittedQuery}"
+        if (speechSpeaker.isSpeakingUtterance(utteranceId)) {
+            speechSpeaker.stop()
+        } else {
+            speakCurrentReport(current)
+        }
+    }
+
+    fun speakCurrentReport(report: ScanAnalysisState = state.value) {
+        val summary = report.clinicalSummary
+        val targetLang = summary?.language?.takeIf { it.isNotBlank() }?.let(AppLanguage::fromCode)
+            ?: languageStore.currentLanguage
+        val text = buildSpokenReportText(report)
+        if (text.isBlank()) return
+        val utteranceId = "report_${report.scanId ?: report.submittedQuery}"
+        speechSpeaker.speak(text = text, language = targetLang, utteranceId = utteranceId)
+    }
+
+    fun toggleSpeakClinicalSummary() {
+        val current = state.value
+        val summary = current.clinicalSummary ?: return
+        val utteranceId = "summary_${current.scanId ?: current.submittedQuery}"
+        val targetLang = summary.language.takeIf { it.isNotBlank() }?.let(AppLanguage::fromCode)
+            ?: languageStore.currentLanguage
+        val spoken = buildString {
+            append(summary.headline).append(". ")
+            append(summary.patientExplanation)
+            if (summary.actionableNextSteps.isNotEmpty()) {
+                append(". ")
+                append(summary.actionableNextSteps.joinToString(". "))
+            }
+        }
+        speechSpeaker.toggleSpeak(text = spoken, language = targetLang, utteranceId = utteranceId)
+    }
+
+    fun stopSpeaking() {
+        speechSpeaker.stop()
+    }
+
+    private fun buildSpokenReportText(report: ScanAnalysisState): String = buildString {
+        val summary = report.clinicalSummary
+        if (summary != null) {
+            append(summary.headline).append(". ")
+            append(summary.patientExplanation)
+            if (summary.actionableNextSteps.isNotEmpty()) {
+                append(". ")
+                append(summary.actionableNextSteps.take(2).joinToString(". "))
+            }
+        } else {
+            if (report.submittedQuery.isNotBlank()) {
+                append(report.submittedQuery).append(". ")
+            }
+            report.allergyAlerts.forEach { append(it.reason).append(". ") }
+            report.duplicateSalts.forEach {
+                append("${it.canonicalSalt} is already active in ${it.existingDisplayName}. ")
+            }
+            report.interactions.take(2).forEach {
+                append("${it.saltA} and ${it.saltB}: ${it.management}. ")
+            }
+        }
+    }.trim()
 
     fun retryLastAnalysis() {
         val req = _lastRequest.value ?: return

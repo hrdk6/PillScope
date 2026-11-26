@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CameraAlt
@@ -43,9 +44,11 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalBar
 import androidx.compose.material.icons.filled.LocalDining
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
@@ -93,6 +96,9 @@ import com.pillscope.app.data.repository.AnalysisStage
 import com.pillscope.app.data.repository.CachedScanSummary
 import com.pillscope.app.data.repository.RiskLevel
 import com.pillscope.app.data.repository.ScanAnalysisState
+import com.pillscope.app.i18n.AppLanguage
+import com.pillscope.app.i18n.LocalAppLanguage
+import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.common.DosagePresetChips
 import com.pillscope.app.ui.common.formatInteractionSourceLabel
 import com.pillscope.app.ui.common.formatMonographLinkLabel
@@ -114,14 +120,25 @@ import kotlin.math.sin
 fun ProgressiveAnalysisScreen(
     viewModel: AnalysisViewModel,
     onNavigateToScan: (() -> Unit)? = null,
+    onAskAiAboutScan: ((scanId: String?, medicineName: String, resolvedSalts: List<String>) -> Unit)? = null,
     onAddToCabinet: ((displayName: String, canonicalSalts: List<String>, dosageSchedule: String?) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
+    val currentLanguage = LocalAppLanguage.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val cachedHistory by viewModel.cachedHistory.collectAsStateWithLifecycle()
     val canRetry by viewModel.canRetry.collectAsStateWithLifecycle()
     val isAlreadyInCabinet by viewModel.isCurrentScanSavedInCabinet.collectAsStateWithLifecycle()
+    val speechState by viewModel.speechState.collectAsStateWithLifecycle()
+
+    val reportUtteranceId = "report_${state.scanId ?: state.submittedQuery}"
+    val summaryUtteranceId = "summary_${state.scanId ?: state.submittedQuery}"
+    val isSpeakingReport = (speechState.isSpeaking || speechState.isLoadingCloudAudio) &&
+        speechState.activeUtteranceId == reportUtteranceId
+    val isSpeakingSummary = (speechState.isSpeaking || speechState.isLoadingCloudAudio) &&
+        speechState.activeUtteranceId == summaryUtteranceId
 
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -178,12 +195,12 @@ fun ProgressiveAnalysisScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
-                            text = "Check a medicine against ${activeProfile.name}'s cabinet",
+                            text = "${strings.checkSafety} · ${activeProfile.name}",
                             style = MaterialTheme.typography.titleMedium,
                             color = PillScopeColors.InkPrimary,
                         )
                         Text(
-                            text = "Scan a blister pack or search by brand or generic ingredient to check drug interactions, duplicate ingredients, allergies, and active FDA recalls.",
+                            text = strings.checkAgainstCabinetBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = PillScopeColors.InkSecondary,
                         )
@@ -195,7 +212,7 @@ fun ProgressiveAnalysisScreen(
                             ) {
                                 Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.size(8.dp))
-                                Text("Scan or search a medicine")
+                                Text(strings.scanOrSearchMedicine)
                             }
                         }
                     }
@@ -206,12 +223,59 @@ fun ProgressiveAnalysisScreen(
                     isStreaming = isStreaming,
                     safetyLocked = state.safetyBannerLocked,
                 )
+
+                // Voice Readout + Ask AI quick actions for the active safety report
+                if (state.stage == AnalysisStage.COMPLETE || state.clinicalSummary != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = viewModel::toggleSpeakCurrentReport,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (isSpeakingReport) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text(if (isSpeakingReport) strings.stopSpeaking else strings.readFullReport)
+                        }
+                        if (onAskAiAboutScan != null) {
+                            Button(
+                                onClick = {
+                                    onAskAiAboutScan(
+                                        state.scanId,
+                                        state.submittedQuery.ifBlank { state.resolvedSalts.joinToString(" + ") },
+                                        state.resolvedSalts,
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 44.dp),
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text(strings.askAiAboutMedicine)
+                            }
+                        }
+                    }
+                }
             }
 
             if (state.lifestyleTriggers.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Food, alcohol, and lifestyle guidance",
+                        text = strings.foodAlcoholLifestyle,
                         style = MaterialTheme.typography.titleMedium,
                         color = PillScopeColors.InkPrimary,
                     )
@@ -234,7 +298,7 @@ fun ProgressiveAnalysisScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
-                            text = "Analysis could not complete: $err",
+                            text = "${strings.checkIncomplete}: $err",
                             style = MaterialTheme.typography.bodyMedium,
                             color = PillScopeColors.ModerateAmberDark,
                         )
@@ -245,7 +309,7 @@ fun ProgressiveAnalysisScreen(
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.size(6.dp))
-                                Text("Retry safety check")
+                                Text(strings.retrySafetyCheck)
                             }
                         }
                     }
@@ -254,7 +318,7 @@ fun ProgressiveAnalysisScreen(
 
             if (state.interactions.isNotEmpty()) {
                 Text(
-                    text = "Interaction findings (${state.interactions.size})",
+                    text = "${strings.interactionFindings} (${state.interactions.size})",
                     style = MaterialTheme.typography.titleMedium,
                     color = PillScopeColors.InkPrimary,
                 )
@@ -264,6 +328,8 @@ fun ProgressiveAnalysisScreen(
             }
 
             state.clinicalSummary?.let { summary ->
+                val summaryLang = summary.language.takeIf { it.isNotBlank() }?.let(AppLanguage::fromCode)
+                    ?: currentLanguage
                 ClinicalSummaryCard(
                     headline = summary.headline,
                     explanation = summary.patientExplanation,
@@ -271,6 +337,9 @@ fun ProgressiveAnalysisScreen(
                     abstained = summary.abstained,
                     citationVerified = state.citationVerified,
                     disclaimer = summary.disclaimer,
+                    languageLabel = summaryLang.nativeName,
+                    isSpeaking = isSpeakingSummary,
+                    onToggleSpeak = viewModel::toggleSpeakClinicalSummary,
                 )
             }
 
@@ -299,7 +368,7 @@ fun ProgressiveAnalysisScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                             Text(
-                                text = "In ${activeProfile.name}'s medication cabinet",
+                                text = "${strings.inCabinetBadge} · ${activeProfile.name}",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = PillScopeColors.SafeEmeraldDark,
                             )
@@ -331,9 +400,9 @@ fun ProgressiveAnalysisScreen(
                         Spacer(Modifier.size(6.dp))
                         Text(
                             if (hasPinnedDanger) {
-                                "Add to ${activeProfile.name}'s cabinet anyway"
+                                "${strings.addToCabinetAnywayAction} (${activeProfile.name})"
                             } else {
-                                "Add to ${activeProfile.name}'s cabinet"
+                                "${strings.addToCabinetAction} (${activeProfile.name})"
                             },
                         )
                     }
@@ -342,7 +411,7 @@ fun ProgressiveAnalysisScreen(
 
             if (state.citations.isNotEmpty()) {
                 Text(
-                    text = "Official FDA & DailyMed references (${state.citations.size})",
+                    text = "${strings.officialReferences} (${state.citations.size})",
                     style = MaterialTheme.typography.titleMedium,
                     color = PillScopeColors.InkPrimary,
                 )
@@ -370,14 +439,14 @@ fun ProgressiveAnalysisScreen(
                             modifier = Modifier.size(18.dp),
                         )
                         Text(
-                            text = "Recent scans (${cachedHistory.size})",
+                            text = "${strings.recentScans} (${cachedHistory.size})",
                             style = MaterialTheme.typography.titleMedium,
                             color = PillScopeColors.InkPrimary,
                         )
                     }
                     if (cachedHistory.size > 10) {
                         TextButton(onClick = { showAllHistory = !showAllHistory }) {
-                            Text(if (showAllHistory) "Show fewer" else "Show all")
+                            Text(if (showAllHistory) strings.showFewer else strings.showAll)
                         }
                     }
                 }
@@ -562,7 +631,7 @@ private fun PinnedCriticalSafetyBanner(
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
-                    text = "Critical safety alert",
+                    text = LocalAppStrings.current.criticalSafetyAlert,
                     color = PillScopeColors.OnCriticalBanner,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
@@ -683,15 +752,16 @@ private fun RiskGaugeHeroCard(
         },
         label = "riskHeadlineColor",
     )
+    val strings = LocalAppStrings.current
     val riskHeadline = when {
-        state.stage == AnalysisStage.IDLE -> "Ready to scan"
-        state.stage == AnalysisStage.CONNECTING -> "Checking safety…"
-        state.stage == AnalysisStage.ERROR -> "Check incomplete"
-        isUnrecognized -> "Medicine not recognized"
-        state.overallRisk == RiskLevel.MAJOR -> "Major risk"
-        state.overallRisk == RiskLevel.MODERATE -> "Moderate caution"
-        state.overallRisk == RiskLevel.MINOR -> "Minor risk"
-        else -> "No interactions found"
+        state.stage == AnalysisStage.IDLE -> strings.readyToScan
+        state.stage == AnalysisStage.CONNECTING -> strings.checkingSafety
+        state.stage == AnalysisStage.ERROR -> strings.checkIncomplete
+        isUnrecognized -> strings.medicineNotRecognized
+        state.overallRisk == RiskLevel.MAJOR -> strings.majorRisk
+        state.overallRisk == RiskLevel.MODERATE -> strings.moderateCaution
+        state.overallRisk == RiskLevel.MINOR -> strings.minorRisk
+        else -> strings.noInteractionsFound
     }
 
     Card(
@@ -714,7 +784,7 @@ private fun RiskGaugeHeroCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = state.submittedQuery.ifBlank { "No active safety check" },
+                        text = state.submittedQuery.ifBlank { strings.noActiveSafetyCheck },
                         style = MaterialTheme.typography.titleLarge,
                         color = PillScopeColors.InkPrimary,
                     )
@@ -842,7 +912,7 @@ private fun RiskGaugeHeroCard(
                     )
                     if (state.fromOfflineCache) {
                         Text(
-                            text = "Saved offline report",
+                            text = strings.savedOfflineReport,
                             style = MaterialTheme.typography.labelSmall,
                             color = PillScopeColors.InkSecondary,
                         )
@@ -896,9 +966,10 @@ private fun LiveSsePipelineStrip(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PipelineStepPill(label = "Ingredients", active = saltResolvedDone)
-                PipelineStepPill(label = "Interactions", active = mlScoredDone)
-                PipelineStepPill(label = "FDA Sources", active = monographsDone)
+                val strings = LocalAppStrings.current
+                PipelineStepPill(label = strings.stepIngredients, active = saltResolvedDone)
+                PipelineStepPill(label = strings.stepInteractions, active = mlScoredDone)
+                PipelineStepPill(label = strings.stepFdaSources, active = monographsDone)
             }
 
             if (isStreaming) {
@@ -1175,7 +1246,11 @@ private fun ClinicalSummaryCard(
     abstained: Boolean,
     citationVerified: Boolean,
     disclaimer: String,
+    languageLabel: String = "",
+    isSpeaking: Boolean = false,
+    onToggleSpeak: (() -> Unit)? = null,
 ) {
+    val strings = LocalAppStrings.current
     val badgeColor = if (abstained) PillScopeColors.ModerateAmberDark else PillScopeColors.SafeEmeraldDark
     val badgeBg = if (abstained) PillScopeColors.ModerateAmberSurface else PillScopeColors.SafeEmeraldSurface
     Card(
@@ -1185,30 +1260,82 @@ private fun ClinicalSummaryCard(
         border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Surface(
-                shape = CircleShape,
-                color = badgeBg,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Surface(
+                    shape = CircleShape,
+                    color = badgeBg,
+                    modifier = Modifier.weight(1f, fill = false),
                 ) {
-                    Icon(
-                        imageVector = if (abstained) Icons.Default.Warning else Icons.Default.Verified,
-                        contentDescription = null,
-                        tint = badgeColor,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(
-                        text = when {
-                            abstained -> "Limited label evidence — consult a pharmacist"
-                            citationVerified -> "Verified from FDA drug labels"
-                            else -> "Safety summary"
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (abstained) Icons.Default.Warning else Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = badgeColor,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = when {
+                                abstained -> strings.limitedLabelEvidence
+                                citationVerified -> strings.verifiedFdaLabels
+                                else -> strings.safetySummary
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = badgeColor,
+                        )
+                    }
+                }
+                if (onToggleSpeak != null) {
+                    Spacer(Modifier.size(8.dp))
+                    Surface(
+                        onClick = onToggleSpeak,
+                        modifier = Modifier.heightIn(min = 36.dp),
+                        shape = CircleShape,
+                        color = if (isSpeaking) {
+                            PillScopeColors.CriticalCrimsonSurface
+                        } else {
+                            PillScopeColors.ClinicalTealContainer
                         },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = badgeColor,
-                    )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (isSpeaking) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isSpeaking) strings.stopSpeaking else strings.listen,
+                                tint = if (isSpeaking) {
+                                    PillScopeColors.CriticalCrimsonDark
+                                } else {
+                                    PillScopeColors.ClinicalTealDeep
+                                },
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = if (isSpeaking) {
+                                    strings.stopSpeaking
+                                } else if (languageLabel.isNotBlank()) {
+                                    "${strings.listen} · $languageLabel"
+                                } else {
+                                    strings.listen
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSpeaking) {
+                                    PillScopeColors.CriticalCrimsonDark
+                                } else {
+                                    PillScopeColors.ClinicalTealDeep
+                                },
+                            )
+                        }
+                    }
                 }
             }
             Text(

@@ -79,6 +79,7 @@ import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
 import com.pillscope.app.data.repository.CabinetMedication
 import com.pillscope.app.data.repository.OfflineAllergyChecker
+import com.pillscope.app.i18n.LocalAppStrings
 import com.pillscope.app.ui.common.DosagePresetChips
 import com.pillscope.app.ui.common.formatSaltComponents
 import com.pillscope.app.ui.common.normalizeSaltInput
@@ -95,6 +96,7 @@ fun CabinetScreen(
     onRunCabinetInteractionCheck: ((ScanAnalyzeRequestDto) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val medications by viewModel.medications.collectAsStateWithLifecycle()
     val recalls by viewModel.activeRecalls.collectAsStateWithLifecycle()
     val activeAllergies by viewModel.activeProfileAllergies.collectAsStateWithLifecycle()
@@ -130,7 +132,7 @@ fun CabinetScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Medication cabinet",
+                    text = strings.medicationCabinetTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     color = PillScopeColors.InkPrimary,
                 )
@@ -165,7 +167,7 @@ fun CabinetScreen(
                             modifier = Modifier.size(16.dp),
                         )
                     },
-                    label = { Text("List") },
+                    label = { Text(strings.listView) },
                 )
                 SegmentedButton(
                     selected = uiState.displayMode == CabinetDisplayMode.NETWORK,
@@ -178,7 +180,7 @@ fun CabinetScreen(
                             modifier = Modifier.size(16.dp),
                         )
                     },
-                    label = { Text("Network") },
+                    label = { Text(strings.networkView) },
                 )
             }
 
@@ -249,7 +251,7 @@ fun CabinetScreen(
                                 border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
                             ) {
                                 Text(
-                                    text = "This profile has no saved medications yet. Tap + to add active prescriptions.",
+                                    text = strings.emptyCabinetMessage,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = PillScopeColors.InkSecondary,
                                     modifier = Modifier.padding(18.dp),
@@ -293,9 +295,9 @@ fun CabinetScreen(
     pendingDeleteMed?.let { med ->
         AlertDialog(
             onDismissRequest = { pendingDeleteMed = null },
-            title = { Text("Remove medication?") },
+            title = { Text(strings.removeMedicationTitle) },
             text = {
-                Text("Remove ${med.displayName} from this profile's medication cabinet?")
+                Text("${strings.removeFromCabinet}: ${med.displayName}?")
             },
             confirmButton = {
                 TextButton(
@@ -308,12 +310,12 @@ fun CabinetScreen(
                         disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
                     ),
                 ) {
-                    Text("Remove")
+                    Text(strings.remove)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteMed = null }) {
-                    Text("Cancel")
+                    Text(strings.cancel)
                 }
             },
         )
@@ -507,6 +509,7 @@ private fun CabinetMedicationCard(
     onToggleActive: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
+    val strings = LocalAppStrings.current
     val isPaused = !medication.isActive
     val saltText = remember(medication.genericSalts, medication.canonicalSaltKeys) {
         formatSaltComponents(medication.genericSalts, medication.canonicalSaltKeys)
@@ -556,7 +559,7 @@ private fun CabinetMedicationCard(
                             color = PillScopeColors.SlateBorder.copy(alpha = 0.65f),
                         ) {
                             Text(
-                                text = "Paused",
+                                text = strings.pausedLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = PillScopeColors.InkPrimary,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -622,7 +625,7 @@ private fun CabinetMedicationCard(
                     )
                     Text(
                         text = buildString {
-                            append(if (medication.isPendingSync) "Pending sync" else "Synced")
+                            append(if (medication.isPendingSync) strings.pendingSyncLabel else strings.syncedLabel)
                             medication.dosageSchedule?.let { append(", $it") }
                         },
                         style = MaterialTheme.typography.labelSmall,
@@ -960,6 +963,7 @@ private fun AddMedicationDialog(
     onDismiss: () -> Unit,
     onConfirm: (displayName: String, rawSaltsCsv: String, dosageSchedule: String?, brandMappingId: String?) -> Unit,
 ) {
+    val strings = LocalAppStrings.current
     var name by remember { mutableStateOf("") }
     var salts by remember { mutableStateOf("") }
     var schedule by remember { mutableStateOf("") }
@@ -986,7 +990,7 @@ private fun AddMedicationDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add to cabinet") },
+        title = { Text(strings.addToCabinetTitle) },
         text = {
             Column(
                 modifier = Modifier
@@ -1001,7 +1005,7 @@ private fun AddMedicationDialog(
                         selectedBrandId = null
                         onQueryChanged(it)
                     },
-                    label = { Text("Medicine brand or name") },
+                    label = { Text(strings.medicineBrandOrName) },
                     trailingIcon = {
                         if (isSearching) {
                             LoadingIndicator(
@@ -1067,15 +1071,15 @@ private fun AddMedicationDialog(
                 OutlinedTextField(
                     value = salts,
                     onValueChange = { salts = it },
-                    label = { Text("Active ingredients (comma separated)") },
-                    supportingText = { Text("e.g. acetaminophen 650mg (strength parsed automatically)") },
+                    label = { Text(strings.activeIngredientsCsv) },
+                    supportingText = { Text("e.g. acetaminophen 650mg") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = schedule,
                     onValueChange = { schedule = it },
-                    label = { Text("Dosage schedule (optional)") },
+                    label = { Text(strings.dosageScheduleOptional) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -1139,11 +1143,11 @@ private fun AddMedicationDialog(
                     disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
                 ),
             ) {
-                Text(if (hasInlineWarning) "Save anyway" else "Save")
+                Text(if (hasInlineWarning) strings.saveAnyway else strings.save)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         },
     )
 }

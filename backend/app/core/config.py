@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool | None = None
     rate_limit_auth_per_minute: int = 20
     rate_limit_scan_per_minute: int = 30
+    rate_limit_assistant_per_minute: int = 30
     rate_limit_api_per_minute: int = 120
     rate_limit_internal_per_minute: int = 10
     trusted_proxy_ips: list[str] = Field(default_factory=list)
@@ -61,6 +62,10 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["gemini", "openai"] = "gemini"
     llm_model: str = "gemini-2.5-flash"
+    gemini_tts_model: str = "gemini-3.8-flash-tts"
+    gemini_tts_voice: str = "Kore"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "alloy"
     gemini_api_key: str = ""
     openai_api_key: str = ""
     llm_timeout_seconds: float = 20.0

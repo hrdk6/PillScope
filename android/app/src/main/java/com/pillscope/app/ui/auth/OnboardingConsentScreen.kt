@@ -45,14 +45,18 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pillscope.app.BuildConfig
+import com.pillscope.app.i18n.LocalAppStrings
+import com.pillscope.app.ui.common.LanguagePillButton
 import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
 
 @Composable
 fun OnboardingConsentScreen(
     onAccept: () -> Unit,
+    onOpenLanguagePicker: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val openUri = rememberSafeUriOpener()
     var acknowledgedDisclaimer by rememberSaveable { mutableStateOf(false) }
     var acknowledgedDataProcessing by rememberSaveable { mutableStateOf(false) }
@@ -80,12 +84,12 @@ fun OnboardingConsentScreen(
                         ConsentCheckboxRow(
                             checked = acknowledgedDisclaimer,
                             onCheckedChange = { acknowledgedDisclaimer = it },
-                            label = "I understand PillScope is informational only and not medical advice.",
+                            label = strings.consentDisclaimerCheckbox,
                         )
                         ConsentCheckboxRow(
                             checked = acknowledgedDataProcessing,
                             onCheckedChange = { acknowledgedDataProcessing = it },
-                            label = "I consent to medication & allergy safety processing as described in the Privacy Policy.",
+                            label = strings.consentDataCheckbox,
                         )
                         Button(
                             onClick = onAccept,
@@ -97,7 +101,7 @@ fun OnboardingConsentScreen(
                             shape = RoundedCornerShape(18.dp),
                         ) {
                             Text(
-                                text = "Continue to Sign In",
+                                text = strings.continueToSignIn,
                                 style = MaterialTheme.typography.labelLarge,
                             )
                         }
@@ -114,6 +118,13 @@ fun OnboardingConsentScreen(
                 .padding(horizontal = 20.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                LanguagePillButton(onClick = onOpenLanguagePicker)
+            }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -132,12 +143,12 @@ fun OnboardingConsentScreen(
                 }
                 Column {
                     Text(
-                        text = "Welcome to PillScope",
+                        text = strings.welcomeTitle,
                         style = MaterialTheme.typography.headlineSmall,
                         color = PillScopeColors.InkPrimary,
                     )
                     Text(
-                        text = "Review safety & privacy terms before your first scan.",
+                        text = strings.welcomeSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = PillScopeColors.InkSecondary,
                     )
@@ -146,28 +157,28 @@ fun OnboardingConsentScreen(
 
             DisclosureCard(
                 icon = Icons.Default.MedicalInformation,
-                title = "Medical disclaimer",
+                title = strings.medicalDisclaimerTitle,
                 points = listOf(
-                    "Informational medication safety aid — not a substitute for a doctor or pharmacist.",
-                    "Never start, stop, or change prescriptions based solely on app results.",
+                    strings.medicalDisclaimerPoint1,
+                    strings.medicalDisclaimerPoint2,
                 ),
             )
 
             DisclosureCard(
                 icon = Icons.Default.PrivacyTip,
-                title = "On-device camera & safety checks",
+                title = strings.onDeviceCameraTitle,
                 points = listOf(
-                    "Camera frames stay on your device; label text is read locally.",
-                    "When you run a check, active ingredients, cabinet salts, and allergy alerts are processed by our backend and clinical AI providers to cite official FDA labels.",
+                    strings.onDeviceCameraPoint1,
+                    strings.onDeviceCameraPoint2,
                 ),
             )
 
             DisclosureCard(
                 icon = Icons.Default.Shield,
-                title = "Your privacy controls",
+                title = strings.privacyControlsTitle,
                 points = listOf(
-                    "Credentials are encrypted via Android Keystore and sent over HTTPS.",
-                    "Delete your account and all family profiles at any time from the Profile menu.",
+                    strings.privacyControlsPoint1,
+                    strings.privacyControlsPoint2,
                 ),
             )
 
@@ -178,12 +189,12 @@ fun OnboardingConsentScreen(
                 TextButton(
                     onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) },
                 ) {
-                    Text("Privacy Policy")
+                    Text(strings.privacyPolicy)
                 }
                 TextButton(
                     onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) },
                 ) {
-                    Text("Data Deletion Info")
+                    Text(strings.dataDeletionInfo)
                 }
             }
         }

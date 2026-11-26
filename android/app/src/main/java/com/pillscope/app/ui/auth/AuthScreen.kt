@@ -60,6 +60,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pillscope.app.BuildConfig
+import com.pillscope.app.i18n.LocalAppStrings
+import com.pillscope.app.ui.common.LanguagePillButton
 import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
 
@@ -70,8 +72,10 @@ private enum class AuthTab { SIGN_IN, CREATE_ACCOUNT }
 fun AuthScreen(
     viewModel: AuthViewModel,
     sessionNotice: String?,
+    onOpenLanguagePicker: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val strings = LocalAppStrings.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val openUri = rememberSafeUriOpener()
 
@@ -114,6 +118,13 @@ fun AuthScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                LanguagePillButton(onClick = onOpenLanguagePicker)
+            }
+
             Surface(
                 shape = CircleShape,
                 color = PillScopeColors.ClinicalTealContainer,
@@ -129,12 +140,12 @@ fun AuthScreen(
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "PillScope",
+                    text = strings.appName,
                     style = MaterialTheme.typography.headlineMedium,
                     color = PillScopeColors.ClinicalTealDeep,
                 )
                 Text(
-                    text = "Medication interaction & cabinet safety copilot",
+                    text = strings.appTagline,
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.InkSecondary,
                 )
@@ -174,7 +185,7 @@ fun AuthScreen(
                                 viewModel.clearError()
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                            label = { Text("Sign In") },
+                            label = { Text(strings.signIn) },
                         )
                         SegmentedButton(
                             selected = selectedTab == AuthTab.CREATE_ACCOUNT,
@@ -183,7 +194,7 @@ fun AuthScreen(
                                 viewModel.clearError()
                             },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                            label = { Text("Create Account") },
+                            label = { Text(strings.createAccount) },
                         )
                     }
 
@@ -193,7 +204,7 @@ fun AuthScreen(
                             onValueChange = { displayName = it },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text("Your name (optional)") },
+                            label = { Text(strings.yourNameOptional) },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             shape = RoundedCornerShape(14.dp),
@@ -212,7 +223,7 @@ fun AuthScreen(
                         supportingText = uiState.emailError?.let { err ->
                             { Text(text = err) }
                         },
-                        label = { Text("Email address") },
+                        label = { Text(strings.emailAddress) },
                         leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Email,
@@ -231,9 +242,9 @@ fun AuthScreen(
                         label = {
                             Text(
                                 if (selectedTab == AuthTab.CREATE_ACCOUNT) {
-                                    "Password (min 8 characters)"
+                                    strings.passwordMinChars
                                 } else {
-                                    "Password"
+                                    strings.password
                                 },
                             )
                         },
@@ -290,7 +301,7 @@ fun AuthScreen(
                             LoadingIndicator(modifier = Modifier.size(22.dp))
                         } else {
                             Text(
-                                if (selectedTab == AuthTab.SIGN_IN) "Sign In" else "Create Account",
+                                if (selectedTab == AuthTab.SIGN_IN) strings.signIn else strings.createAccount,
                             )
                         }
                     }
@@ -312,19 +323,19 @@ fun AuthScreen(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.size(8.dp))
-                Text("Use offline scanner & allergy checker")
+                Text(strings.useOfflineScanner)
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) },
                 ) {
-                    Text("Privacy Policy")
+                    Text(strings.privacyPolicy)
                 }
                 TextButton(
                     onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) },
                 ) {
-                    Text("Account Deletion")
+                    Text(strings.accountDeletion)
                 }
             }
         }
