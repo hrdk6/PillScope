@@ -25,6 +25,7 @@ from backend.app.services.voice_assistant import (
     SpeechSynthesisUnavailableError,
     answer_voice_question,
     get_assistant_generator,
+    is_cloud_tts_available,
     synthesize_speech_audio,
 )
 
@@ -38,9 +39,12 @@ def get_voice_assistant_generator(
 
 
 @router.get("/languages", response_model=SupportedLanguagesResponse)
-async def get_supported_languages() -> SupportedLanguagesResponse:
+async def get_supported_languages(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SupportedLanguagesResponse:
     return SupportedLanguagesResponse(
         default_language="en",
+        cloud_tts_available=is_cloud_tts_available(settings),
         languages=[
             SupportedLanguageInfo(
                 code=spec.code,
@@ -48,6 +52,7 @@ async def get_supported_languages() -> SupportedLanguagesResponse:
                 english_name=spec.english_name,
                 native_name=spec.native_name,
                 script_name=spec.script_name,
+                edge_tts_voice=spec.edge_tts_voice,
             )
             for spec in list_supported_languages()
         ],
@@ -102,6 +107,8 @@ async def synthesize_assistant_speech(
             text=body.text,
             language=body.language,
             voice=body.voice,
+            tone=body.tone,
+            speech_rate=body.speech_rate,
             settings=settings,
         )
     except SpeechSynthesisUnavailableError as exc:
@@ -112,5 +119,8 @@ async def synthesize_assistant_speech(
     return Response(
         content=audio_bytes,
         media_type=media_type,
-        headers={"X-PillScope-Language": body.language},
+        headers={
+            "X-PillScope-Language": body.language,
+            "X-PillScope-Tone": body.tone,
+        },
     )

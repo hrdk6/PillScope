@@ -10,7 +10,7 @@ import javax.inject.Singleton
 
 @Singleton
 class LanguagePreferenceStore @Inject constructor(
-    @ApplicationContext context: Context,
+    @param:ApplicationContext context: Context,
 ) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -23,14 +23,15 @@ class LanguagePreferenceStore @Inject constructor(
     val autoSpeakAnswers: StateFlow<Boolean> = _autoSpeakAnswers.asStateFlow()
 
     private val _speechRate = MutableStateFlow(
-        prefs.getFloat(KEY_SPEECH_RATE, 1.0f).coerceIn(0.75f, 1.35f),
+        prefs.getFloat(KEY_SPEECH_RATE, DEFAULT_SPEECH_RATE).coerceIn(MIN_SPEECH_RATE, MAX_SPEECH_RATE),
     )
     val speechRate: StateFlow<Float> = _speechRate.asStateFlow()
 
-    private val _preferCloudVoice = MutableStateFlow(
-        prefs.getBoolean(KEY_PREFER_CLOUD_VOICE, false),
+    private val _preferCloudNeuralVoice = MutableStateFlow(
+        prefs.getBoolean(KEY_PREFER_CLOUD_NEURAL_VOICE, DEFAULT_PREFER_CLOUD_NEURAL_VOICE),
     )
-    val preferCloudVoice: StateFlow<Boolean> = _preferCloudVoice.asStateFlow()
+    val preferCloudNeuralVoice: StateFlow<Boolean> = _preferCloudNeuralVoice.asStateFlow()
+    val preferCloudVoice: StateFlow<Boolean> = preferCloudNeuralVoice
 
     val currentLanguage: AppLanguage
         get() = _language.value
@@ -47,14 +48,18 @@ class LanguagePreferenceStore @Inject constructor(
     }
 
     fun setSpeechRate(rate: Float) {
-        val clamped = rate.coerceIn(0.75f, 1.35f)
+        val clamped = rate.coerceIn(MIN_SPEECH_RATE, MAX_SPEECH_RATE)
         _speechRate.value = clamped
         prefs.edit().putFloat(KEY_SPEECH_RATE, clamped).apply()
     }
 
+    fun setPreferCloudNeuralVoice(prefer: Boolean) {
+        _preferCloudNeuralVoice.value = prefer
+        prefs.edit().putBoolean(KEY_PREFER_CLOUD_NEURAL_VOICE, prefer).apply()
+    }
+
     fun setPreferCloudVoice(prefer: Boolean) {
-        _preferCloudVoice.value = prefer
-        prefs.edit().putBoolean(KEY_PREFER_CLOUD_VOICE, prefer).apply()
+        setPreferCloudNeuralVoice(prefer)
     }
 
     private fun loadSavedLanguage(): AppLanguage {
@@ -66,11 +71,15 @@ class LanguagePreferenceStore @Inject constructor(
         }
     }
 
-    private companion object {
-        const val PREFS_NAME = "pillscope_language_voice_prefs"
-        const val KEY_LANGUAGE_CODE = "selected_language_code_v1"
-        const val KEY_AUTO_SPEAK = "auto_speak_answers_v1"
-        const val KEY_SPEECH_RATE = "speech_rate_v1"
-        const val KEY_PREFER_CLOUD_VOICE = "prefer_cloud_voice_v1"
+    companion object {
+        const val DEFAULT_SPEECH_RATE = 0.94f
+        const val DEFAULT_PREFER_CLOUD_NEURAL_VOICE = true
+        const val MIN_SPEECH_RATE = 0.75f
+        const val MAX_SPEECH_RATE = 1.35f
+        private const val PREFS_NAME = "pillscope_language_voice_prefs"
+        private const val KEY_LANGUAGE_CODE = "selected_language_code_v1"
+        private const val KEY_AUTO_SPEAK = "auto_speak_answers_v1"
+        private const val KEY_SPEECH_RATE = "speech_rate_v2"
+        private const val KEY_PREFER_CLOUD_NEURAL_VOICE = "prefer_cloud_neural_voice_v2"
     }
 }

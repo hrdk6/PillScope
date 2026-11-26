@@ -12,6 +12,7 @@ import com.pillscope.app.i18n.AppLanguage
 import com.pillscope.app.i18n.LanguagePreferenceStore
 import com.pillscope.app.voice.MultilingualSpeechSpeaker
 import com.pillscope.app.voice.SpeechPlaybackState
+import com.pillscope.app.voice.SpeechTone
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -123,6 +124,7 @@ class VoiceAssistantViewModel @Inject constructor(
             text = message.spokenText.ifBlank { message.text },
             language = message.language,
             utteranceId = message.id,
+            tone = SpeechTone.fromRisk(message.overallRisk, message.safetyBannerLocked),
         )
     }
 
@@ -205,6 +207,7 @@ class VoiceAssistantViewModel @Inject constructor(
                     text = assistantMsg.spokenText,
                     language = replyLanguage,
                     utteranceId = assistantMsg.id,
+                    tone = SpeechTone.fromRisk(assistantMsg.overallRisk, assistantMsg.safetyBannerLocked),
                 )
             }
         }

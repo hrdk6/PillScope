@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import importlib.util
+import io
 import json
 import re
+import wave
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
 import httpx
+import redis.asyncio as aioredis
 import structlog
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -16,10 +22,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.languages import (
     MULTILINGUAL_DOWNGRADE_PATTERNS,
+    LanguageSpec,
+    SpeechTone,
     SupportedLanguageCode,
+    deduplicate_sentences,
     get_language_spec,
     language_prompt_instruction,
     normalize_language_code,
+    prepare_text_for_speech,
 )
 from backend.app.db.models import Medication, Profile, ScanLog
 from backend.app.schemas.assistant import (
@@ -52,12 +62,13 @@ _UUID_RE = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
     re.IGNORECASE,
 )
-_MARKDOWN_CLEANUP_RE = re.compile(r"[*_`#>\[\]]+")
-_MULTI_SPACE_RE = re.compile(r"\s+")
+_TTS_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?।॥])\s+")
+_TTS_CACHE_KEY_PREFIX = "pillscope:tts:v1:"
+_DEFAULT_PCM_SAMPLE_RATE = 24000
+_DEFAULT_PCM_SAMPLE_WIDTH = 2
+_DEFAULT_PCM_CHANNELS = 1
+_CHUNK_PAUSE_MS = 160
 
-# Common Indian-script & transliterated brand/salt aliases so voice questions spoken in
-# Hindi, Bengali, Telugu, Marathi, Tamil, Gujarati, Kannada, Malayalam, or Punjabi
-# trigger PillScope's deterministic clinical safety engine accurately.
 _INDIC_MEDICINE_ALIASES: dict[str, tuple[str, ...]] = {
     "पैरासिटामोल": ("acetaminophen",),
     "पॅरासिटामोल": ("acetaminophen",),
@@ -415,14 +426,43 @@ class AssistantAnswerGenerator(Protocol):
 
 
 class SpeechSynthesisUnavailableError(RuntimeError):
-    """Raised when cloud TTS is not configured or unavailable, signaling device TTS fallback."""
+    """Raised when cloud TTS is unavailable, signaling on-device TTS fallback."""
 
 
-def _clean_for_speech(text: str) -> str:
-    cleaned = _UUID_RE.sub("", text)
-    cleaned = _MARKDOWN_CLEANUP_RE.sub(" ", cleaned)
-    cleaned = cleaned.replace("•", ". ").replace("—", ", ").replace("\n", " ")
-    return _MULTI_SPACE_RE.sub(" ", cleaned).strip()
+class TtsAudioCache(Protocol):
+    async def get(self, key: str) -> bytes | None: ...
+
+    async def set(self, key: str, value: bytes, ex: int | None = None) -> Any: ...
+
+
+EdgeSynthesizer = Callable[[str, str, str], Awaitable[tuple[bytes, str]]]
+
+_shared_tts_redis: aioredis.Redis | None = None
+_shared_tts_redis_url: str = ""
+
+
+def derive_speech_tone(
+    overall_risk: RiskLevel,
+    safety_banner_locked: bool = False,
+) -> SpeechTone:
+    if safety_banner_locked or overall_risk == "MAJOR":
+        return "urgent"
+    if overall_risk in {"MODERATE", "MINOR"}:
+        return "caution"
+    return "reassuring"
+
+
+def _clean_for_speech(
+    text: str,
+    language: str = "en",
+    *,
+    is_major_alert: bool = False,
+) -> str:
+    return prepare_text_for_speech(
+        text,
+        language=language,
+        is_major_alert=is_major_alert,
+    )
 
 
 def _extract_indic_alias_salts(text: str) -> list[str]:
@@ -560,7 +600,13 @@ def _build_deterministic_answer(context: AssistantContext) -> _RawAssistantAnswe
         )
 
     answer_text = "\n\n".join(parts)
-    spoken_text = _clean_for_speech(" ".join(parts[:4]))
+    is_major = context.safety_banner_locked or context.overall_risk == "MAJOR"
+    spoken_source = " ".join(parts[1:4] if context.safety_banner_locked else parts[:4])
+    spoken_text = _clean_for_speech(
+        spoken_source,
+        language=spec.code,
+        is_major_alert=is_major,
+    )
     return _RawAssistantAnswer(
         answer_text=answer_text[:2500],
         spoken_text=spoken_text[:1800] or answer_text[:500],
@@ -580,6 +626,8 @@ def _build_assistant_prompt(context: AssistantContext) -> str:
         "mentioned_or_context_salts": context.mentioned_salts,
         "overall_risk": context.overall_risk,
         "safety_banner_locked": context.safety_banner_locked,
+        "tts_tone": derive_speech_tone(context.overall_risk, context.safety_banner_locked),
+        "verbal_major_warning_prefix": spec.verbal_major_warning_prefix,
         "active_cabinet": context.active_medications,
         "documented_allergies": context.allergies,
         "allergy_alerts": [a.model_dump(mode="json") for a in context.allergy_alerts],
@@ -602,20 +650,23 @@ def _build_assistant_prompt(context: AssistantContext) -> str:
         "recent_conversation": context.conversation_history[-6:],
     }
     return (
-        "You are PillScope's multilingual medication safety voice assistant.\n"
+        "You are PillScope's warm, conversational Indian healthcare medication safety companion.\n"
         f"Language requirement: {language_prompt_instruction(spec.code)}\n"
-        "Strict clinical & voice rules:\n"
+        "Strict clinical and voice rules:\n"
         "1. NEVER contradict, soften, or downgrade safety_banner_locked or overall_risk.\n"
-        "2. If safety_banner_locked is true, lead immediately with the critical safety warning "
-        "(allergy conflict, duplicate active salt, major interaction, or recall) and advise "
-        "consulting a doctor or pharmacist before taking.\n"
+        "2. If safety_banner_locked is true or overall_risk is MAJOR, open spoken_text with "
+        f"the calm localized warning prefix '{spec.verbal_major_warning_prefix}' before "
+        "explaining the risk and advising the user to check with a doctor or pharmacist.\n"
         "3. Ground every drug-label claim ONLY in the provided deterministic alerts, cabinet, "
         "schedule, and monograph_chunks. ONLY cite chunk_id UUIDs present in monograph_chunks.\n"
         "4. Produce BOTH:\n"
         "   - answer_text: clear, structured patient-friendly answer in the required language "
         "(no markdown asterisks or raw UUIDs).\n"
-        "   - spoken_text: concise 2-5 sentence conversational version in the EXACT same language "
-        "optimized for natural Text-to-Speech pronunciation (no bullets, URLs, or UUIDs).\n"
+        "   - spoken_text: written strictly for ears, not screens, in the EXACT same language. "
+        "Use short sentences under 18 words with natural comma pauses. Expand medical units and "
+        "abbreviations into natural spoken words (milligrams, micrograms, milliliters, "
+        "twice a day, three times a day, once a day, per). Strip all markdown, bullets, "
+        "parentheses, URLs, slashes, and citation brackets. Never repeat sentences.\n"
         "   - suggested_followups: 3 short follow-up questions in the EXACT same language.\n"
         "5. Return strict JSON matching the schema.\n\n"
         f"CONTEXT_JSON:\n{json.dumps(payload, indent=2, ensure_ascii=False)}"
@@ -777,9 +828,19 @@ def _verify_assistant_answer(
     if not cleaned_followups:
         cleaned_followups = list(spec.followup_prompts)
 
+    is_major = context.safety_banner_locked or context.overall_risk == "MAJOR"
+    spoken_clean = _clean_for_speech(
+        raw.spoken_text,
+        language=spec.code,
+        is_major_alert=is_major,
+    ) or _clean_for_speech(
+        raw.answer_text,
+        language=spec.code,
+        is_major_alert=is_major,
+    )
     cleaned = _RawAssistantAnswer(
         answer_text=raw.answer_text.strip(),
-        spoken_text=_clean_for_speech(raw.spoken_text) or _clean_for_speech(raw.answer_text),
+        spoken_text=spoken_clean[:1800],
         suggested_followups=cleaned_followups,
         cited_chunk_ids=[c.chunk_id for c in valid_cites],
     )
@@ -849,17 +910,14 @@ async def answer_voice_question(
             ]
             candidate_salts.extend(scan_salts)
 
-    # Extract any medicines/salts mentioned directly in the spoken/typed question
     candidate_salts.extend(_extract_indic_alias_salts(request.question))
     candidate_salts.extend(comp.canonical_salt for comp in parse_ocr_salts(request.question))
 
-    # Also match active cabinet display names referenced in the question
     q_lower = request.question.lower()
     for med in active_meds:
         if med.display_name.lower() in q_lower:
             candidate_salts.extend(med.canonical_salt_keys)
 
-    # Try resolving Indian brand names mentioned in the question via BrandSaltResolver
     resolver = BrandSaltResolver(trigram_threshold=max(settings.trigram_similarity_threshold, 0.35))
     try:
         resolved_brand = await resolver.resolve(
@@ -876,7 +934,6 @@ async def answer_voice_question(
     mentioned_salts = canonical_salt_keys(candidate_salts)
     all_involved_salts = canonical_salt_keys([*mentioned_salts, *cabinet_salts])
 
-    # Tier 1 deterministic safety checks BEFORE LLM execution
     duplicate_salts = (
         await detect_duplicate_salts(
             session=session,
@@ -1007,6 +1064,7 @@ async def answer_voice_question(
         bcp47_locale=spec.bcp47,
         overall_risk=overall_risk,
         safety_banner_locked=safety_banner_locked,
+        tts_tone=derive_speech_tone(overall_risk, safety_banner_locked),
         referenced_salts=all_involved_salts,
         suggested_followups=verified_answer.suggested_followups,
         citations=verified_citations,
@@ -1015,57 +1073,268 @@ async def answer_voice_question(
     )
 
 
-async def synthesize_speech_audio(
+def is_edge_tts_available() -> bool:
+    return importlib.util.find_spec("edge_tts") is not None
+
+
+def is_cloud_tts_available(settings: Settings) -> bool:
+    return bool(settings.gemini_api_key) or (
+        settings.tts_edge_enabled and is_edge_tts_available()
+    )
+
+
+def build_tts_cache_key(
+    normalized_spoken_text: str,
+    language: SupportedLanguageCode,
+    tone: SpeechTone,
+    speech_rate: float,
+) -> str:
+    payload = f"{normalized_spoken_text}|{language}|{tone}|{speech_rate:.2f}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{_TTS_CACHE_KEY_PREFIX}{digest}"
+
+
+def _encode_cached_audio(audio_bytes: bytes, media_type: str) -> bytes:
+    return f"{media_type}\n".encode("ascii") + audio_bytes
+
+
+def _decode_cached_audio(raw: bytes | None) -> tuple[bytes, str] | None:
+    if not raw or b"\n" not in raw:
+        return None
+    header, audio = raw.split(b"\n", 1)
+    if not audio:
+        return None
+    try:
+        media_type = header.decode("ascii").strip()
+    except UnicodeDecodeError:
+        return None
+    if not media_type:
+        return None
+    return audio, media_type
+
+
+def _get_tts_redis_client(settings: Settings) -> aioredis.Redis | None:
+    global _shared_tts_redis, _shared_tts_redis_url
+    if not settings.redis_url:
+        return None
+    if _shared_tts_redis is None or _shared_tts_redis_url != settings.redis_url:
+        _shared_tts_redis = aioredis.Redis.from_url(
+            settings.redis_url,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        _shared_tts_redis_url = settings.redis_url
+    return _shared_tts_redis
+
+
+async def _read_cached_tts_audio(
+    cache: TtsAudioCache | aioredis.Redis | None,
+    cache_key: str,
+) -> tuple[bytes, str] | None:
+    if cache is None:
+        return None
+    try:
+        raw = await cache.get(cache_key)
+    except Exception as exc:
+        logger.debug("tts_redis_cache_read_skipped", error=str(exc))
+        return None
+    if not isinstance(raw, bytes):
+        return None
+    return _decode_cached_audio(raw)
+
+
+async def _write_cached_tts_audio(
+    cache: TtsAudioCache | aioredis.Redis | None,
+    cache_key: str,
+    audio_bytes: bytes,
+    media_type: str,
+    ttl_seconds: int,
+) -> None:
+    if cache is None or ttl_seconds <= 0:
+        return
+    try:
+        await cache.set(cache_key, _encode_cached_audio(audio_bytes, media_type), ex=ttl_seconds)
+    except Exception as exc:
+        logger.debug("tts_redis_cache_write_skipped", error=str(exc))
+
+
+def format_edge_tts_rate(speech_rate: float, default_rate: str = "-6%") -> str:
+    if abs(speech_rate - 0.94) < 0.01:
+        return default_rate
+    pct = max(-30, min(35, round((speech_rate - 1.0) * 100)))
+    return f"{pct:+d}%"
+
+
+def _gemini_style_direction(
+    spec: LanguageSpec,
+    tone: SpeechTone,
+    speech_rate: float,
+) -> str:
+    pace_note = (
+        "unhurried and gentle pace"
+        if speech_rate <= 0.90
+        else "slightly brisk yet clear pace"
+        if speech_rate >= 1.08
+        else "natural, unhurried pace"
+    )
+    if tone == "urgent":
+        return (
+            f"clear, calm, gently firm Indian healthcare companion speaking in "
+            f"{spec.english_name} ({spec.bcp47}), {pace_note} with brief pauses at commas "
+            "and periods so critical medication safety guidance is unmistakable"
+        )
+    if tone == "caution":
+        return (
+            f"calm, attentive, caring Indian healthcare companion speaking in "
+            f"{spec.english_name} ({spec.bcp47}), {pace_note} with brief pauses at commas "
+            "and periods"
+        )
+    return (
+        f"warm, unhurried, conversational Indian healthcare companion speaking in "
+        f"{spec.english_name} ({spec.bcp47}), {pace_note} with brief pauses at commas "
+        "and periods"
+    )
+
+
+def _chunk_text_for_gemini_tts(text: str, max_chars: int = 420) -> list[str]:
+    raw_sentences = [
+        part.strip() for part in _TTS_SENTENCE_SPLIT_RE.split(text.strip()) if part.strip()
+    ]
+    sentences = deduplicate_sentences(raw_sentences)
+    if not sentences:
+        return []
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for sentence in sentences:
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(" ".join(current))
+                current = []
+                current_len = 0
+            words = sentence.split()
+            segment: list[str] = []
+            seg_len = 0
+            for word in words:
+                added = len(word) + (1 if segment else 0)
+                if segment and seg_len + added > max_chars:
+                    chunks.append(" ".join(segment))
+                    segment = [word]
+                    seg_len = len(word)
+                else:
+                    segment.append(word)
+                    seg_len += added
+            if segment:
+                chunks.append(" ".join(segment))
+            continue
+
+        added = len(sentence) + (1 if current else 0)
+        if current and current_len + added > max_chars:
+            chunks.append(" ".join(current))
+            current = [sentence]
+            current_len = len(sentence)
+        else:
+            current.append(sentence)
+            current_len += added
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+
+def _wrap_pcm_as_wav(
+    pcm_bytes: bytes,
+    sample_rate: int = _DEFAULT_PCM_SAMPLE_RATE,
+    channels: int = _DEFAULT_PCM_CHANNELS,
+    sample_width: int = _DEFAULT_PCM_SAMPLE_WIDTH,
+) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_out:
+        wav_out.setnchannels(channels)
+        wav_out.setsampwidth(sample_width)
+        wav_out.setframerate(sample_rate)
+        wav_out.writeframes(pcm_bytes)
+    return buf.getvalue()
+
+
+def _combine_wav_chunks(chunks: list[tuple[bytes, str]]) -> tuple[bytes, str]:
+    if len(chunks) == 1:
+        audio_bytes, mime_type = chunks[0]
+        lower_mime = mime_type.lower()
+        if ("l16" in lower_mime or "pcm" in lower_mime) and not audio_bytes.startswith(b"RIFF"):
+            return _wrap_pcm_as_wav(audio_bytes), "audio/wav"
+        return audio_bytes, mime_type
+
+    channels = _DEFAULT_PCM_CHANNELS
+    sample_width = _DEFAULT_PCM_SAMPLE_WIDTH
+    sample_rate = _DEFAULT_PCM_SAMPLE_RATE
+    pcm_segments: list[bytes] = []
+
+    for audio_bytes, _mime in chunks:
+        if audio_bytes.startswith(b"RIFF"):
+            try:
+                with wave.open(io.BytesIO(audio_bytes), "rb") as wav_in:
+                    channels = wav_in.getnchannels()
+                    sample_width = wav_in.getsampwidth()
+                    sample_rate = wav_in.getframerate()
+                    pcm_segments.append(wav_in.readframes(wav_in.getnframes()))
+                    continue
+            except wave.Error:
+                pass
+        pcm_segments.append(audio_bytes)
+
+    pause_frames = int(sample_rate * (_CHUNK_PAUSE_MS / 1000.0))
+    silence = b"\x00" * (pause_frames * channels * sample_width)
+    merged_pcm = silence.join(seg for seg in pcm_segments if seg)
+    return _wrap_pcm_as_wav(merged_pcm, sample_rate, channels, sample_width), "audio/wav"
+
+
+async def _synthesize_with_gemini_tts(
     *,
-    text: str,
-    language: str,
+    spoken_text: str,
+    spec: LanguageSpec,
+    tone: SpeechTone,
+    speech_rate: float,
+    voice: str,
     settings: Settings,
-    voice: str | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> tuple[bytes, str]:
-    """Synthesize speech audio bytes via Gemini TTS or OpenAI TTS when configured.
+    chunks = _chunk_text_for_gemini_tts(
+        spoken_text,
+        max_chars=max(120, settings.tts_gemini_max_chunk_chars),
+    )
+    if not chunks:
+        raise SpeechSynthesisUnavailableError("No chunks available for Gemini TTS.")
 
-    Returns (audio_bytes, media_type). Raises SpeechSynthesisUnavailableError when no cloud
-    TTS API key is configured so Android clients seamlessly fall back to on-device TTS.
-    """
-    spec = get_language_spec(language)
-    spoken_text = _clean_for_speech(text)[:1800]
-    if not spoken_text:
-        raise ValueError("Nothing to synthesize after cleaning input text.")
-
-    if settings.llm_provider == "gemini" and settings.gemini_api_key:
-        selected_voice = voice or settings.gemini_tts_voice
-        style = (
-            f"calm, clear, empathetic medical assistant speaking in "
-            f"{spec.english_name} ({spec.bcp47}) at a steady, easy-to-follow pace"
-        )
-        payload: dict[str, Any] = {
-            "model": settings.gemini_tts_model,
-            "input": [
-                {
-                    "type": "user_input",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": spoken_text,
-                            "annotations": [
-                                {
-                                    "type": "speech_metadata",
-                                    "style": style,
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-            "response_format": {"type": "audio"},
-            "generation_config": {
-                "speech_config": [{"voice": selected_voice}],
-            },
-        }
-        client = http_client or httpx.AsyncClient(timeout=settings.llm_timeout_seconds)
-        should_close = http_client is None
-        try:
+    style = _gemini_style_direction(spec, tone, speech_rate)
+    client = http_client or httpx.AsyncClient(timeout=settings.llm_timeout_seconds)
+    should_close = http_client is None
+    rendered_chunks: list[tuple[bytes, str]] = []
+    try:
+        for chunk in chunks:
+            payload: dict[str, Any] = {
+                "model": settings.gemini_tts_model,
+                "input": [
+                    {
+                        "type": "user_input",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": chunk,
+                                "annotations": [
+                                    {
+                                        "type": "speech_metadata",
+                                        "style": style,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+                "response_format": {"type": "audio"},
+                "generation_config": {
+                    "speech_config": [{"voice": voice}],
+                },
+            }
             resp = await client.post(
                 "https://generativelanguage.googleapis.com/v1beta/interactions",
                 headers={
@@ -1088,43 +1357,118 @@ async def synthesize_speech_audio(
                             mime_type = str(part["mime_type"])
             if not audio_b64:
                 raise SpeechSynthesisUnavailableError("Gemini TTS response contained no audio.")
-            return base64.b64decode(audio_b64), mime_type
-        except SpeechSynthesisUnavailableError:
-            raise
-        except Exception as exc:
-            logger.warning("gemini_tts_failed", error=str(exc), language=spec.code)
-            raise SpeechSynthesisUnavailableError(f"Gemini TTS unavailable: {exc}") from exc
-        finally:
-            if should_close:
-                await client.aclose()
+            rendered_chunks.append((base64.b64decode(audio_b64), mime_type))
+    finally:
+        if should_close:
+            await client.aclose()
 
-    if settings.llm_provider == "openai" and settings.openai_api_key:
-        selected_voice = voice or settings.openai_tts_voice
-        client = http_client or httpx.AsyncClient(timeout=settings.llm_timeout_seconds)
-        should_close = http_client is None
+    return _combine_wav_chunks(rendered_chunks)
+
+
+async def _synthesize_with_edge_tts(
+    text: str,
+    voice: str,
+    rate: str,
+) -> tuple[bytes, str]:
+    import edge_tts
+
+    communicator = edge_tts.Communicate(text=text, voice=voice, rate=rate)
+    audio_buffer = io.BytesIO()
+    async for chunk in communicator.stream():
+        if chunk.get("type") == "audio":
+            data = chunk.get("data")
+            if isinstance(data, (bytes, bytearray)):
+                audio_buffer.write(data)
+    audio_bytes = audio_buffer.getvalue()
+    if not audio_bytes:
+        raise SpeechSynthesisUnavailableError("Edge TTS returned empty audio.")
+    return audio_bytes, "audio/mpeg"
+
+
+async def synthesize_speech_audio(
+    *,
+    text: str,
+    language: str,
+    settings: Settings,
+    voice: str | None = None,
+    tone: SpeechTone = "reassuring",
+    speech_rate: float = 0.94,
+    http_client: httpx.AsyncClient | None = None,
+    redis_client: TtsAudioCache | None = None,
+    edge_synthesizer: EdgeSynthesizer | None = None,
+) -> tuple[bytes, str]:
+    spec = get_language_spec(language)
+    spoken_text = _clean_for_speech(
+        text,
+        language=spec.code,
+        is_major_alert=(tone == "urgent"),
+    )[:1800]
+    if not spoken_text:
+        raise ValueError("Nothing to synthesize after cleaning input text.")
+
+    cache_backend: TtsAudioCache | aioredis.Redis | None = redis_client
+    if cache_backend is None and settings.app_env != "test":
+        cache_backend = _get_tts_redis_client(settings)
+
+    cache_key = build_tts_cache_key(spoken_text, spec.code, tone, speech_rate)
+    cached = await _read_cached_tts_audio(cache_backend, cache_key)
+    if cached is not None:
+        return cached
+
+    if settings.gemini_api_key:
+        selected_gemini_voice = voice or settings.gemini_tts_voice
         try:
-            resp = await client.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {settings.openai_api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings.openai_tts_model,
-                    "voice": selected_voice,
-                    "input": spoken_text,
-                    "response_format": "mp3",
-                },
+            audio_bytes, media_type = await _synthesize_with_gemini_tts(
+                spoken_text=spoken_text,
+                spec=spec,
+                tone=tone,
+                speech_rate=speech_rate,
+                voice=selected_gemini_voice,
+                settings=settings,
+                http_client=http_client,
             )
-            resp.raise_for_status()
-            return resp.content, "audio/mpeg"
+            await _write_cached_tts_audio(
+                cache_backend,
+                cache_key,
+                audio_bytes,
+                media_type,
+                settings.tts_cache_ttl_seconds,
+            )
+            return audio_bytes, media_type
         except Exception as exc:
-            logger.warning("openai_tts_failed", error=str(exc), language=spec.code)
-            raise SpeechSynthesisUnavailableError(f"OpenAI TTS unavailable: {exc}") from exc
-        finally:
-            if should_close:
-                await client.aclose()
+            logger.warning(
+                "gemini_tts_failed_falling_back_to_edge",
+                error=str(exc),
+                language=spec.code,
+                tone=tone,
+            )
+
+    if settings.tts_edge_enabled and (edge_synthesizer is not None or is_edge_tts_available()):
+        selected_edge_voice = (
+            voice if voice and "Neural" in voice else spec.edge_tts_voice
+        )
+        edge_rate = format_edge_tts_rate(speech_rate, settings.tts_edge_rate)
+        synth_fn = edge_synthesizer or _synthesize_with_edge_tts
+        try:
+            audio_bytes, media_type = await synth_fn(spoken_text, selected_edge_voice, edge_rate)
+            if not audio_bytes:
+                raise SpeechSynthesisUnavailableError("Edge TTS returned empty audio.")
+            await _write_cached_tts_audio(
+                cache_backend,
+                cache_key,
+                audio_bytes,
+                media_type,
+                settings.tts_cache_ttl_seconds,
+            )
+            return audio_bytes, media_type
+        except Exception as exc:
+            logger.warning(
+                "edge_tts_failed",
+                error=str(exc),
+                language=spec.code,
+                voice=selected_edge_voice,
+            )
 
     raise SpeechSynthesisUnavailableError(
-        "Cloud neural TTS is not configured; use on-device TextToSpeech."
+        "Cloud neural TTS is unavailable; use on-device TextToSpeech."
     )

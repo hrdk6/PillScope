@@ -105,8 +105,8 @@ fun LanguageAndVoiceSheet(
     val strings = LocalAppStrings.current
     val speedOptions = listOf(
         0.85f to strings.speedSlow,
-        1.0f to strings.speedNormal,
-        1.2f to strings.speedFast,
+        0.94f to strings.speedNormal,
+        1.12f to strings.speedFast,
     )
 
     ModalBottomSheet(

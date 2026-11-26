@@ -15,6 +15,7 @@ import com.pillscope.app.i18n.AppLanguage
 import com.pillscope.app.i18n.LanguagePreferenceStore
 import com.pillscope.app.voice.MultilingualSpeechSpeaker
 import com.pillscope.app.voice.SpeechPlaybackState
+import com.pillscope.app.voice.SpeechTone
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -175,7 +176,13 @@ class AnalysisViewModel @Inject constructor(
         val text = buildSpokenReportText(report)
         if (text.isBlank()) return
         val utteranceId = "report_${report.scanId ?: report.submittedQuery}"
-        speechSpeaker.speak(text = text, language = targetLang, utteranceId = utteranceId)
+        val tone = SpeechTone.fromRisk(report.overallRisk, report.safetyBannerLocked)
+        speechSpeaker.speak(
+            text = text,
+            language = targetLang,
+            utteranceId = utteranceId,
+            tone = tone,
+        )
     }
 
     fun toggleSpeakClinicalSummary() {
@@ -192,7 +199,13 @@ class AnalysisViewModel @Inject constructor(
                 append(summary.actionableNextSteps.joinToString(". "))
             }
         }
-        speechSpeaker.toggleSpeak(text = spoken, language = targetLang, utteranceId = utteranceId)
+        val tone = SpeechTone.fromRisk(current.overallRisk, current.safetyBannerLocked)
+        speechSpeaker.toggleSpeak(
+            text = spoken,
+            language = targetLang,
+            utteranceId = utteranceId,
+            tone = tone,
+        )
     }
 
     fun stopSpeaking() {

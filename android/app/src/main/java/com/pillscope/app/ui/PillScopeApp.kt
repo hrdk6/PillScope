@@ -76,6 +76,7 @@ import com.pillscope.app.ui.scan.ScanViewModel
 import com.pillscope.app.ui.schedule.ScheduleScreen
 import com.pillscope.app.ui.schedule.ScheduleViewModel
 import com.pillscope.app.ui.theme.PillScopeColors
+import com.pillscope.app.voice.SpeechTone
 import com.pillscope.app.voice.VoiceNavTarget
 
 private object Routes {
@@ -249,7 +250,12 @@ private fun AuthenticatedPillScopeShell(
                     append(strings.conflictsCannotResolve).append(". ")
                 }
             }
-            languageViewModel.toggleSpeak(spoken, language, "schedule_tts")
+            val tone = if (currentSchedule.unresolvableClashes.isNotEmpty()) {
+                SpeechTone.CAUTION
+            } else {
+                SpeechTone.REASSURING
+            }
+            languageViewModel.toggleSpeak(spoken, language, "schedule_tts", tone)
         }
     }
 

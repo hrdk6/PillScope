@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     gemini_tts_voice: str = "Kore"
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "alloy"
+    tts_cache_ttl_seconds: int = 86400
+    tts_edge_enabled: bool = True
+    tts_edge_rate: str = "-6%"
+    tts_gemini_max_chunk_chars: int = 420
     gemini_api_key: str = ""
     openai_api_key: str = ""
     llm_timeout_seconds: float = 20.0

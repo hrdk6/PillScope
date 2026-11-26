@@ -1,5 +1,6 @@
 package com.pillscope.app
 
+import android.speech.tts.Voice
 import com.pillscope.app.data.local.entity.MedicationEntity
 import com.pillscope.app.data.local.entity.SyncStatus
 import com.pillscope.app.data.remote.PillScopeApi
@@ -7,31 +8,48 @@ import com.pillscope.app.data.remote.dto.AllergyEntryDto
 import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
 import com.pillscope.app.data.remote.sse.ScanSseParser
 import com.pillscope.app.data.repository.AssistantRepository
+import com.pillscope.app.data.repository.RiskLevel
+import com.pillscope.app.data.repository.TtsAudioDiskCache
 import com.pillscope.app.data.repository.UserProfile
 import com.pillscope.app.i18n.AppLanguage
 import com.pillscope.app.i18n.AppStringsCatalog
+import com.pillscope.app.i18n.LanguagePreferenceStore
+import com.pillscope.app.voice.DeviceVoiceCandidate
+import com.pillscope.app.voice.SpeechTone
 import com.pillscope.app.voice.VoiceCommand
 import com.pillscope.app.voice.VoiceCommandParser
 import com.pillscope.app.voice.VoiceNavTarget
+import com.pillscope.app.voice.rankDeviceVoices
+import com.pillscope.app.voice.sanitizeForDeviceSpeech
 import com.pillscope.app.voice.splitTextForSpeech
+import com.pillscope.app.voice.wrapPcmAsWavIfNeeded
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
 class MultilingualVoiceAssistantTest {
 
+    @get:Rule
+    val tempFolder = TemporaryFolder()
+
     @Test
     fun allTenIndianLanguagesHaveCompleteStringsAndValidLocales() {
         assertEquals(10, AppLanguage.entries.size)
+        assertTrue(LanguagePreferenceStore.DEFAULT_PREFER_CLOUD_NEURAL_VOICE)
+        assertEquals(0.94f, LanguagePreferenceStore.DEFAULT_SPEECH_RATE, 0.001f)
         for (lang in AppLanguage.entries) {
             assertTrue("Missing native name for $lang", lang.nativeName.isNotBlank())
             assertTrue("Invalid BCP-47 tag for $lang", lang.bcp47Tag.endsWith("-IN"))
@@ -50,6 +68,85 @@ class MultilingualVoiceAssistantTest {
             assertTrue(strings.listen.isNotBlank())
             assertTrue(strings.readFullReport.isNotBlank())
         }
+    }
+
+    @Test
+    fun speechToneMapsRiskSeverityAndLockStateAccurately() {
+        assertEquals(SpeechTone.URGENT, SpeechTone.fromRisk(RiskLevel.MAJOR, false))
+        assertEquals(SpeechTone.URGENT, SpeechTone.fromRisk(RiskLevel.NONE, true))
+        assertEquals(SpeechTone.CAUTION, SpeechTone.fromRisk(RiskLevel.MODERATE, false))
+        assertEquals(SpeechTone.CAUTION, SpeechTone.fromRisk(RiskLevel.MINOR, false))
+        assertEquals(SpeechTone.REASSURING, SpeechTone.fromRisk(RiskLevel.NONE, false))
+
+        assertEquals("urgent", SpeechTone.fromRisk("MAJOR", false).apiValue)
+        assertEquals("urgent", SpeechTone.fromRisk("NONE", true).apiValue)
+        assertEquals("caution", SpeechTone.fromRisk("MODERATE", false).apiValue)
+        assertEquals("reassuring", SpeechTone.fromRisk("NONE", false).apiValue)
+    }
+
+    @Test
+    fun speechSanitizationStripsMarkdownUrlsBracketsParenthesesAndSymbols() {
+        val messy = """
+            - **Important** alert [1] (see label) https://dailymed.nlm.nih.gov/drug/12345
+            • Take `Dolo 650` — consult doctor | pharmacist #safe *now*!!
+        """.trimIndent()
+        val sanitized = sanitizeForDeviceSpeech(messy)
+        assertTrue(sanitized.contains("Important"))
+        assertTrue(sanitized.contains("Dolo 650"))
+        assertFalse(sanitized.contains("http"))
+        assertFalse(sanitized.contains("**"))
+        assertFalse(sanitized.contains("["))
+        assertFalse(sanitized.contains("]"))
+        assertFalse(sanitized.contains("("))
+        assertFalse(sanitized.contains(")"))
+        assertFalse(sanitized.contains("`"))
+        assertFalse(sanitized.contains("#"))
+        assertFalse(sanitized.contains("|"))
+        assertFalse(sanitized.contains("•"))
+        assertFalse(sanitized.contains("!!"))
+    }
+
+    @Test
+    fun voiceQualityRankingPrefersOfflineLocalWhenOfflineAndIndiaNeuralWhenOnline() {
+        val voices = listOf(
+            DeviceVoiceCandidate(
+                name = "hi-in-x-hie-local-normal",
+                languageCode = "hi",
+                countryCode = "IN",
+                quality = Voice.QUALITY_NORMAL,
+                requiresNetwork = false,
+            ),
+            DeviceVoiceCandidate(
+                name = "hi-in-x-hie-local-veryhigh",
+                languageCode = "hi",
+                countryCode = "IN",
+                quality = Voice.QUALITY_VERY_HIGH,
+                requiresNetwork = false,
+            ),
+            DeviceVoiceCandidate(
+                name = "hi-in-x-hie-network-neural",
+                languageCode = "hi",
+                countryCode = "IN",
+                quality = Voice.QUALITY_VERY_HIGH,
+                requiresNetwork = true,
+            ),
+            DeviceVoiceCandidate(
+                name = "en-us-x-sfg-network",
+                languageCode = "en",
+                countryCode = "US",
+                quality = Voice.QUALITY_VERY_HIGH,
+                requiresNetwork = true,
+            ),
+        )
+
+        val offlineBest = rankDeviceVoices(voices, AppLanguage.HINDI, isOnline = false)
+        assertNotNull(offlineBest)
+        assertEquals("hi-in-x-hie-local-veryhigh", offlineBest?.name)
+        assertFalse(offlineBest?.requiresNetwork ?: true)
+
+        val onlineBest = rankDeviceVoices(voices, AppLanguage.HINDI, isOnline = true)
+        assertNotNull(onlineBest)
+        assertEquals("hi-in-x-hie-network-neural", onlineBest?.name)
     }
 
     @Test
@@ -120,7 +217,31 @@ class MultilingualVoiceAssistantTest {
     }
 
     @Test
-    fun assistantRepositoryCallsBackendAndFallsBackOfflineInChosenLanguage() = runTest {
+    fun ttsDiskCacheEvictsOldestEntriesAndWrapsPcmIntoPlayableWav() {
+        val pcmBytes = ByteArray(160) { 1 }
+        val (wavBytes, wavExt) = wrapPcmAsWavIfNeeded(pcmBytes, "audio/l16; rate=24000")
+        assertEquals("wav", wavExt)
+        assertEquals(44 + pcmBytes.size, wavBytes.size)
+        assertEquals("RIFF", String(wavBytes.copyOfRange(0, 4), Charsets.US_ASCII))
+        assertEquals("WAVE", String(wavBytes.copyOfRange(8, 12), Charsets.US_ASCII))
+
+        val mp3Bytes = "ID3-mp3-data".toByteArray(Charsets.US_ASCII)
+        val (outMp3, mp3Ext) = wrapPcmAsWavIfNeeded(mp3Bytes, "audio/mpeg")
+        assertEquals("mp3", mp3Ext)
+        assertEquals(mp3Bytes.size, outMp3.size)
+
+        val cacheDir = tempFolder.newFolder("tts_lru_test")
+        val cache = TtsAudioDiskCache(cacheDir = cacheDir, maxBytes = 100L)
+        val first = cache.put("k1", ByteArray(60) { 1 }, "mp3")
+        first.setLastModified(1_000L)
+        val second = cache.put("k2", ByteArray(60) { 2 }, "mp3")
+        assertFalse(first.exists())
+        assertTrue(second.exists())
+        assertNotNull(cache.get("k2"))
+    }
+
+    @Test
+    fun assistantRepositoryCachesNeuralAudioByToneAndFallsBackOfflineInChosenLanguage() = runTest {
         val server = MockWebServer()
         server.enqueue(
             MockResponse()
@@ -134,6 +255,7 @@ class MultilingualVoiceAssistantTest {
                       "bcp47_locale": "hi-IN",
                       "overall_risk": "MAJOR",
                       "safety_banner_locked": true,
+                      "tts_tone": "urgent",
                       "referenced_salts": ["aspirin", "warfarin"],
                       "suggested_followups": ["कौन सा विकल्प सुरक्षित है?"],
                       "citations": [],
@@ -142,6 +264,12 @@ class MultilingualVoiceAssistantTest {
                     }
                     """.trimIndent(),
                 ),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "audio/mpeg")
+                .setBody(Buffer().write("ID3-neural-hindi-audio".toByteArray(Charsets.US_ASCII))),
         )
         server.enqueue(MockResponse().setResponseCode(503))
         server.start()
@@ -182,7 +310,6 @@ class MultilingualVoiceAssistantTest {
                 updatedAtEpochMs = 1L,
             )
 
-            // 1. Online response in Hindi
             val online = repo.askQuestion(
                 question = "क्या मैं एस्प्रिन और वॉरफेरिन साथ ले सकता हूँ?",
                 language = AppLanguage.HINDI,
@@ -192,12 +319,37 @@ class MultilingualVoiceAssistantTest {
             assertEquals("hi", online.response.language)
             assertTrue(online.response.safetyBannerLocked)
             assertEquals("MAJOR", online.response.overallRisk)
+            assertEquals("urgent", online.response.ttsTone)
             assertTrue(online.response.spokenText.contains("गंभीर"))
 
-            val reqBody = server.takeRequest().body.readUtf8()
-            assertTrue(reqBody.contains("\"language\":\"hi\""))
+            val askReqBody = server.takeRequest().body.readUtf8()
+            assertTrue(askReqBody.contains("\"language\":\"hi\""))
 
-            // 2. Offline fallback still catches Penicillin allergy conflict & responds in Tamil
+            val cacheRoot = tempFolder.newFolder("android_cache_root")
+            val firstAudio = repo.fetchOrCacheSpeechAudio(
+                text = online.response.spokenText,
+                language = AppLanguage.HINDI,
+                tone = SpeechTone.URGENT,
+                speechRate = 0.94f,
+                cacheRootDir = cacheRoot,
+            ).getOrThrow()
+            assertTrue(firstAudio.exists())
+            assertTrue(firstAudio.name.endsWith(".mp3"))
+
+            val ttsReqBody = server.takeRequest().body.readUtf8()
+            assertTrue(ttsReqBody.contains("\"tone\":\"urgent\""))
+            assertTrue(ttsReqBody.contains("\"language\":\"hi\""))
+
+            val cachedAudio = repo.fetchOrCacheSpeechAudio(
+                text = online.response.spokenText,
+                language = AppLanguage.HINDI,
+                tone = SpeechTone.URGENT,
+                speechRate = 0.94f,
+                cacheRootDir = cacheRoot,
+            ).getOrThrow()
+            assertEquals(firstAudio.absolutePath, cachedAudio.absolutePath)
+            assertEquals(2, server.requestCount)
+
             val offline = repo.askQuestion(
                 question = "Can I take amoxicillin?",
                 language = AppLanguage.TAMIL,
@@ -209,7 +361,11 @@ class MultilingualVoiceAssistantTest {
             assertEquals("ta-IN", offline.response.bcp47Locale)
             assertTrue(offline.response.safetyBannerLocked)
             assertEquals("MAJOR", offline.response.overallRisk)
-            assertTrue(offline.response.answerText.contains(AppStringsCatalog.forLanguage(AppLanguage.TAMIL).criticalSafetyAlert))
+            assertTrue(
+                offline.response.answerText.contains(
+                    AppStringsCatalog.forLanguage(AppLanguage.TAMIL).criticalSafetyAlert,
+                ),
+            )
         } finally {
             server.shutdown()
         }

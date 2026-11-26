@@ -547,11 +547,13 @@ data class SupportedLanguageInfoDto(
     @SerialName("english_name") val englishName: String,
     @SerialName("native_name") val nativeName: String,
     @SerialName("script_name") val scriptName: String = "",
+    @SerialName("edge_tts_voice") val edgeTtsVoice: String = "",
 )
 
 @Serializable
 data class SupportedLanguagesResponseDto(
     @SerialName("default_language") val defaultLanguage: String = "en",
+    @SerialName("cloud_tts_available") val cloudTtsAvailable: Boolean = true,
     val languages: List<SupportedLanguageInfoDto> = emptyList(),
 )
 
@@ -580,6 +582,7 @@ data class AssistantAskResponseDto(
     @SerialName("bcp47_locale") val bcp47Locale: String = "en-IN",
     @SerialName("overall_risk") val overallRisk: String = "NONE",
     @SerialName("safety_banner_locked") val safetyBannerLocked: Boolean = false,
+    @SerialName("tts_tone") val ttsTone: String = "reassuring",
     @SerialName("referenced_salts") val referencedSalts: List<String> = emptyList(),
     @SerialName("suggested_followups") val suggestedFollowups: List<String> = emptyList(),
     val citations: List<MonographCitationDto> = emptyList(),
@@ -592,4 +595,6 @@ data class AssistantTtsRequestDto(
     val text: String,
     val language: String = "en",
     val voice: String? = null,
+    val tone: String = "reassuring",
+    @SerialName("speech_rate") val speechRate: Float = 0.94f,
 )

@@ -14,6 +14,7 @@ from backend.app.core.languages import (
     get_language_spec,
     language_prompt_instruction,
     normalize_language_code,
+    prepare_text_for_speech,
 )
 from backend.app.schemas.cabinet import DuplicateSaltAlert, RiskLevel
 from backend.app.schemas.profiles import AllergyAlert
@@ -497,11 +498,13 @@ def build_abstention_summary(context: BriefingContext) -> ClinicalSummary:
             " and ".join(reasons) if reasons else "deterministic safety trigger"
         )
         if tpl is not None:
+            locked_body = tpl["major_locked_body"].format(
+                query=context.submitted_query,
+                detail=detail,
+            )
             return ClinicalSummary(
                 headline=tpl["major_locked_headline"].format(detail=detail)[:300],
-                patient_explanation=tpl["major_locked_body"].format(
-                    query=context.submitted_query, detail=detail
-                )[:3000],
+                patient_explanation=f"{spec.verbal_major_warning_prefix} {locked_body}"[:3000],
                 actionable_next_steps=[tpl["major_step_1"], tpl["major_step_2"]],
                 cited_chunk_ids=[],
                 abstained=True,
@@ -512,6 +515,7 @@ def build_abstention_summary(context: BriefingContext) -> ClinicalSummary:
         return ClinicalSummary(
             headline=f"MAJOR safety alert locked: {detail}.",
             patient_explanation=(
+                f"{spec.verbal_major_warning_prefix} "
                 f"Deterministic safety rules detected a {detail} for {context.submitted_query}. "
                 "No official openFDA/DailyMed monograph sections are currently indexed for these "
                 "salts, so monograph-based clinical synthesis is abstained; the red safety alert "
@@ -613,7 +617,7 @@ def build_extractive_grounded_summary(context: BriefingContext) -> ClinicalSumma
     top_citations = context.citations[:3]
     cited_ids = [c.chunk_id for c in top_citations]
     evidence_snippets = " ".join(
-        f"[{c.canonical_salt} - {c.section_title}]: {c.excerpt[:220].strip()}"
+        f"{c.canonical_salt}, {c.section_title.lower()}: {c.excerpt[:220].strip()}"
         for c in top_citations
     )
 
@@ -655,14 +659,18 @@ def build_extractive_grounded_summary(context: BriefingContext) -> ClinicalSumma
                     )
         if tpl is not None:
             headline = tpl["major_extractive_headline"].format(query=context.submitted_query)
-            explanation = f"{' '.join(alert_parts)} {tpl['evidence_prefix']} {evidence_snippets}"
+            explanation = (
+                f"{spec.verbal_major_warning_prefix} {' '.join(alert_parts)} "
+                f"{tpl['evidence_prefix']} {evidence_snippets}"
+            )
             steps = [tpl["major_step_1"], tpl["major_step_2"]]
         else:
             headline = (
                 f"MAJOR safety warning for {context.submitted_query} — clinician review required."
             )
             explanation = (
-                f"{' '.join(alert_parts)} Grounded monograph excerpts: {evidence_snippets}"
+                f"{spec.verbal_major_warning_prefix} {' '.join(alert_parts)} "
+                f"Grounded monograph excerpts: {evidence_snippets}"
             )
             steps = [
                 "Pause before taking this medication alongside your active cabinet.",
@@ -803,6 +811,20 @@ def verify_clinical_briefing(
     )
 
 
+def build_spoken_clinical_summary(
+    summary: ClinicalSummary,
+    *,
+    is_major_alert: bool = False,
+) -> str:
+    parts = [summary.headline, summary.patient_explanation, *summary.actionable_next_steps[:2]]
+    combined = " ".join(part.strip() for part in parts if part.strip())
+    return prepare_text_for_speech(
+        combined,
+        language=summary.language,
+        is_major_alert=is_major_alert,
+    )
+
+
 def _build_llm_prompt(context: BriefingContext) -> str:
     spec = get_language_spec(context.language)
     payload = {
@@ -812,6 +834,7 @@ def _build_llm_prompt(context: BriefingContext) -> str:
         "safety_banner_locked": context.safety_banner_locked,
         "response_language_code": spec.code,
         "response_language_name": f"{spec.english_name} ({spec.native_name})",
+        "verbal_major_warning_prefix": spec.verbal_major_warning_prefix,
         "duplicate_salts": [d.model_dump(mode="json") for d in context.duplicate_salts],
         "allergy_alerts": [a.model_dump(mode="json") for a in context.allergy_alerts],
         "deterministic_alerts": [a.model_dump(mode="json") for a in context.deterministic_alerts],
@@ -828,15 +851,19 @@ def _build_llm_prompt(context: BriefingContext) -> str:
         ],
     }
     return (
-        "You are PillScope's multilingual clinical medication safety briefing synthesizer.\n"
+        "You are PillScope's warm, conversational multilingual clinical safety synthesizer.\n"
         f"Language requirement: {language_prompt_instruction(spec.code)}\n"
         "Strict rules:\n"
         "1. NEVER contradict or downgrade overall_risk or safety_banner_locked.\n"
         "2. ONLY cite chunk_id UUIDs present in monograph_chunks.\n"
         "3. Never invent monograph claims, studies, or UUIDs.\n"
-        "4. Write headline, patient_explanation, and actionable_next_steps in the target language "
-        "so they read naturally and sound clear when read aloud by Text-to-Speech.\n"
-        "5. Return valid JSON matching the ClinicalSummary schema.\n\n"
+        "4. Write headline, patient_explanation, and actionable_next_steps for ears as well as "
+        "screens: keep sentences short under 18 words with natural comma pauses, expand dosage "
+        "units and abbreviations into natural spoken words, avoid markdown, bullets, parentheses, "
+        "URLs, and citation brackets, and avoid repeating sentences.\n"
+        "5. If safety_banner_locked is true or overall_risk is MAJOR, open calmly with "
+        f"'{spec.verbal_major_warning_prefix}' before explaining the next step.\n"
+        "6. Return valid JSON matching the ClinicalSummary schema.\n\n"
         f"INPUT_JSON:\n{json.dumps(payload, indent=2, ensure_ascii=False)}"
     )
 
