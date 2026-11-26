@@ -56,11 +56,11 @@ fun LanguagePillButton(
     val language = LocalAppLanguage.current
     val strings = LocalAppStrings.current
     val containerColor = if (darkSurface) {
-        Color(0xAA131715)
+        Color(0xAA101B26)
     } else {
         PillScopeColors.CardSurface
     }
-    val contentColor = if (darkSurface) Color(0xFFECEFE9) else PillScopeColors.InkPrimary
+    val contentColor = if (darkSurface) Color(0xFFF0F5FA) else PillScopeColors.InkPrimary
     val borderColor = if (darkSurface) {
         Color.White.copy(alpha = 0.18f)
     } else {

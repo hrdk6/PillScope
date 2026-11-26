@@ -345,11 +345,11 @@ fun CameraScanScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     PillScopeEmblem(
-                        modifier = Modifier.size(50.dp),
-                        ringColor = Color(0xFFB8D4C8),
-                        capsulePrimary = Color(0xFF8FC0A6),
-                        capsuleSecondary = Color(0xFFF5F6F3),
-                        tickColor = Color(0x99F5F6F3),
+                        modifier = Modifier.size(52.dp),
+                        ringColor = Color(0xFFBCEBE4),
+                        capsulePrimary = Color(0xFF58BA98),
+                        capsuleSecondary = Color(0xFFFFFFFF),
+                        tickColor = Color(0xB3FFFFFF),
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -358,14 +358,14 @@ fun CameraScanScreen(
                         } else {
                             strings.cameraPermissionRationale
                         },
-                        color = Color(0xFFECEFE9),
+                        color = Color(0xFFF0F5FA),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(16.dp))
                     val permButtonColors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFE7EFEA),
-                        contentColor = Color(0xFF13342C),
+                        containerColor = Color(0xFFDDF3F0),
+                        contentColor = Color(0xFF0A5851),
                     )
                     if (isPermanentlyDenied) {
                         Button(
@@ -417,8 +417,8 @@ fun CameraScanScreen(
                             },
                             modifier = Modifier
                                 .size(42.dp)
-                                .background(Color(0x99131715), CircleShape)
-                                .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape),
+                                .background(Color(0x99101B26), CircleShape)
+                                .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
                         ) {
                             Icon(
                                 imageVector = if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
@@ -434,8 +434,8 @@ fun CameraScanScreen(
                             onClick = viewModel::toggleCameraFreeze,
                             modifier = Modifier
                                 .size(42.dp)
-                                .background(Color(0x99131715), CircleShape)
-                                .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape),
+                                .background(Color(0x99101B26), CircleShape)
+                                .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
                         ) {
                             Icon(
                                 imageVector = if (state.isCameraFrozen) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -494,7 +494,7 @@ fun CameraScanScreen(
                                 },
                                 modifier = Modifier.heightIn(min = 36.dp),
                                 shape = CircleShape,
-                                color = Color(0xFFE7EFEA),
+                                color = Color(0xFFDDF3F0),
                             ) {
                                 Box(
                                     contentAlignment = Alignment.Center,
@@ -503,7 +503,7 @@ fun CameraScanScreen(
                                     Text(
                                         text = strings.forceScan,
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = Color(0xFF13342C),
+                                        color = Color(0xFF0A5851),
                                     )
                                 }
                             }
@@ -523,8 +523,8 @@ fun CameraScanScreen(
                         ) {
                             Surface(
                                 shape = CircleShape,
-                                color = Color(0xAA131715),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+                                color = Color(0xAA101B26),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
                             ) {
                                 Text(
                                     text = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
@@ -533,7 +533,7 @@ fun CameraScanScreen(
                                         "Checking against ${activeProfile.name}'s cabinet"
                                     },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFECEFE9),
+                                    color = Color(0xFFF0F5FA),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -583,9 +583,9 @@ fun CameraScanScreen(
                         val shutterInteraction = remember { MutableInteractionSource() }
                         val shutterInnerColor by animateColorAsState(
                             targetValue = when {
-                                !canCapture -> Color(0x66131715)
+                                !canCapture -> Color(0x66101B26)
                                 currentAcceptable || state.isForcedCaptureHeld -> PillScopeColors.HudEmeraldLock
-                                else -> Color(0xFFE7EFEA)
+                                else -> Color(0xFFDDF3F0)
                             },
                             animationSpec = tween(PillScopeMotion.STANDARD_MS),
                             label = "shutterInner",
@@ -1238,7 +1238,7 @@ private fun QualityHudStatusPill(
     Surface(
         modifier = modifier,
         shape = CircleShape,
-        color = Color(0xCC131715),
+        color = Color(0xCC101B26),
         border = BorderStroke(1.dp, accent.copy(alpha = 0.55f)),
     ) {
         Row(

@@ -868,7 +868,7 @@ private fun AcousticEqualizerBars(
             val x = i * (barWidth + gap)
             val top = (maxH - h) / 2f
             drawRoundRect(
-                color = barColor.copy(alpha = if (isListening) 0.85f else 0.35f),
+                color = barColor.copy(alpha = if (isListening) 0.92f else 0.52f),
                 topLeft = Offset(x, top),
                 size = Size(barWidth, h),
                 cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),

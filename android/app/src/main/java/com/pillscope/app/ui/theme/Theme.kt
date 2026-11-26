@@ -22,11 +22,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * PillScope Apothecary & Pharmacopoeia Palette.
+ * PillScope Coastal Ceramic & Viridian Palette.
  *
- * Grounded in archival mineral paper, deep botanical spruce, oxblood carmine, burnished ochre,
- * and muted slate indigo — zero neon accents in either Light or Dark mode, while preserving
- * WCAG AA/AAA contrast across every clinical alert state.
+ * Clean, fresh, eye-pleasing clinical colors with zero neon glare and zero muddy grey wash:
+ * crisp alabaster-porcelain light surfaces, deep twilight-slate dark surfaces, rich Aegean
+ * viridian, clear cerulean, warm honey marigold, fresh leaf emerald, and authoritative ruby.
  */
 @Immutable
 data class PillScopePalette(
@@ -61,78 +61,78 @@ data class PillScopePalette(
 )
 
 private val LightPalette = PillScopePalette(
-    // Deep Apothecary Spruce & Eucalyptus Wash
-    clinicalTeal = Color(0xFF1F4F43),
-    clinicalTealDeep = Color(0xFF13342C),
-    clinicalTealContainer = Color(0xFFDDE8E3),
-    // Mineral Porcelain & Stone Paper Hierarchy
-    slateSurface = Color(0xFFF5F6F3),
+    // Rich Aegean Viridian & Fresh Seafoam Wash
+    clinicalTeal = Color(0xFF0D7A6F),
+    clinicalTealDeep = Color(0xFF0A5851),
+    clinicalTealContainer = Color(0xFFDDF3F0),
+    // Airy Porcelain-Sky Canvas & Crisp White Surfaces
+    slateSurface = Color(0xFFF6F9FB),
     cardSurface = Color(0xFFFFFFFF),
-    surfaceTint = Color(0xFFEAECE7),
-    slateBorder = Color(0xFFD4D9D2),
-    inkPrimary = Color(0xFF18201D),
-    inkSecondary = Color(0xFF535F5A),
-    // Oxblood Carmine (authoritative matte danger, non-neon)
-    criticalCrimson = Color(0xFF9E1F28),
-    criticalCrimsonDark = Color(0xFF6D131A),
-    criticalCrimsonSurface = Color(0xFFF8E8E9),
-    criticalBannerContainer = Color(0xFF921B24),
+    surfaceTint = Color(0xFFECF2F7),
+    slateBorder = Color(0xFFD8E2EC),
+    inkPrimary = Color(0xFF102A43),
+    inkSecondary = Color(0xFF486581),
+    // Authoritative Ruby Rose (vivid & clear, non-neon)
+    criticalCrimson = Color(0xFFC82838),
+    criticalCrimsonDark = Color(0xFF8A1724),
+    criticalCrimsonSurface = Color(0xFFFDECEE),
+    criticalBannerContainer = Color(0xFFBE2334),
     onCriticalBanner = Color(0xFFFFFFFF),
-    // Burnished Ochre (earthy caution, non-neon)
-    moderateAmber = Color(0xFF9A5A16),
-    moderateAmberDark = Color(0xFF693B0B),
-    moderateAmberSurface = Color(0xFFF7EFE3),
-    // Archival Slate Indigo (clinical references & minor severity)
-    minorBlue = Color(0xFF2D537B),
-    minorBlueDark = Color(0xFF1E3A57),
-    minorBlueSurface = Color(0xFFEBF0F6),
-    // Botanical Cypress (verified safe & dose completion)
-    safeEmerald = Color(0xFF286448),
-    safeEmeraldDark = Color(0xFF1A4531),
-    safeEmeraldSurface = Color(0xFFE7F0EB),
-    // Matte Anodized Optical Viewfinder
-    hudBackdrop = Color(0xFF131715),
-    hudAmberGlow = Color(0xFFD6A156),
-    hudEmeraldLock = Color(0xFF8FC0A6),
-    onHudLock = Color(0xFF10241C),
+    // Warm Honey Marigold
+    moderateAmber = Color(0xFFC97A10),
+    moderateAmberDark = Color(0xFF7F4806),
+    moderateAmberSurface = Color(0xFFFFF5E4),
+    // Clear Mediterranean Cerulean
+    minorBlue = Color(0xFF2563A6),
+    minorBlueDark = Color(0xFF194475),
+    minorBlueSurface = Color(0xFFE8F2FC),
+    // Fresh Botanical Leaf Green
+    safeEmerald = Color(0xFF1E8255),
+    safeEmeraldDark = Color(0xFF125436),
+    safeEmeraldSurface = Color(0xFFE4F6EC),
+    // Matte Twilight Optical Viewfinder
+    hudBackdrop = Color(0xFF101B26),
+    hudAmberGlow = Color(0xFFE6AC50),
+    hudEmeraldLock = Color(0xFF58BA98),
+    onHudLock = Color(0xFF07271E),
     isDark = false,
 )
 
 private val DarkPalette = PillScopePalette(
-    // Muted Mineral Celadon & Pine Obsidian (zero neon cyan/emerald)
-    clinicalTeal = Color(0xFF7FB3A2),
-    clinicalTealDeep = Color(0xFFC7DDD5),
-    clinicalTealContainer = Color(0xFF1E352E),
-    // Deep Botanical Charcoal Hierarchy
-    slateSurface = Color(0xFF131716),
-    cardSurface = Color(0xFF1B211F),
-    surfaceTint = Color(0xFF232B28),
-    slateBorder = Color(0xFF303B37),
-    inkPrimary = Color(0xFFECEFE9),
-    inkSecondary = Color(0xFF9CA9A4),
-    // Dusty Carmine Rose & Matte Oxblood Banner
-    criticalCrimson = Color(0xFFD9787E),
-    criticalCrimsonDark = Color(0xFFF3CDD0),
-    criticalCrimsonSurface = Color(0xFF351B1E),
-    criticalBannerContainer = Color(0xFF8C1E26),
-    onCriticalBanner = Color(0xFFFAF6F6),
-    // Antique Brass Ochre
-    moderateAmber = Color(0xFFD4A05A),
-    moderateAmberDark = Color(0xFFEFE0C6),
-    moderateAmberSurface = Color(0xFF312617),
-    // Calm Steel Periwinkle
-    minorBlue = Color(0xFF89ADD2),
-    minorBlueDark = Color(0xFFD2E2F2),
-    minorBlueSurface = Color(0xFF1C2836),
-    // Muted Botanical Sage
-    safeEmerald = Color(0xFF7BB295),
-    safeEmeraldDark = Color(0xFFCCE3D6),
-    safeEmeraldSurface = Color(0xFF192C22),
-    // Matte Anodized Optical Viewfinder
-    hudBackdrop = Color(0xFF0E1210),
-    hudAmberGlow = Color(0xFFD6A156),
-    hudEmeraldLock = Color(0xFF8FC0A6),
-    onHudLock = Color(0xFF10241C),
+    // Luminous Seafoam Viridian & Deep Oceanic Pine (pleasing jewel clarity, non-neon)
+    clinicalTeal = Color(0xFF46B5A7),
+    clinicalTealDeep = Color(0xFFB5EAE2),
+    clinicalTealContainer = Color(0xFF153D3D),
+    // Rich Twilight Indigo-Slate Canvas & Elevation
+    slateSurface = Color(0xFF0F1722),
+    cardSurface = Color(0xFF172231),
+    surfaceTint = Color(0xFF202F42),
+    slateBorder = Color(0xFF2C3F56),
+    inkPrimary = Color(0xFFF0F5FA),
+    inkSecondary = Color(0xFF9FB3C8),
+    // Warm Coral Ruby & Deep Ruby Banner
+    criticalCrimson = Color(0xFFEE6B78),
+    criticalCrimsonDark = Color(0xFFFFD3D8),
+    criticalCrimsonSurface = Color(0xFF3C1B24),
+    criticalBannerContainer = Color(0xFFB52536),
+    onCriticalBanner = Color(0xFFFFFFFF),
+    // Warm Golden Honey
+    moderateAmber = Color(0xFFE8AE52),
+    moderateAmberDark = Color(0xFFFCE5BE),
+    moderateAmberSurface = Color(0xFF392B17),
+    // Soft Sky Cerulean
+    minorBlue = Color(0xFF6EA8E5),
+    minorBlueDark = Color(0xFFCFE4FA),
+    minorBlueSurface = Color(0xFF192B40),
+    // Fresh Mint-Leaf Green
+    safeEmerald = Color(0xFF59C092),
+    safeEmeraldDark = Color(0xFFC7F0DC),
+    safeEmeraldSurface = Color(0xFF153227),
+    // Matte Twilight Optical Viewfinder
+    hudBackdrop = Color(0xFF0B121B),
+    hudAmberGlow = Color(0xFFE6AC50),
+    hudEmeraldLock = Color(0xFF58BA98),
+    onHudLock = Color(0xFF07271E),
     isDark = true,
 )
 
@@ -194,21 +194,21 @@ object PillScopeColors {
     val SafeEmeraldSurface: Color
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.safeEmeraldSurface
 
-    val HudBackdrop: Color = Color(0xFF131715)
-    val HudAmberGlow: Color = Color(0xFFD6A156)
-    val HudEmeraldLock: Color = Color(0xFF8FC0A6)
-    val OnHudLock: Color = Color(0xFF10241C)
+    val HudBackdrop: Color = Color(0xFF101B26)
+    val HudAmberGlow: Color = Color(0xFFE6AC50)
+    val HudEmeraldLock: Color = Color(0xFF58BA98)
+    val OnHudLock: Color = Color(0xFF07271E)
 }
 
-private val ApothecaryLightColorScheme = lightColorScheme(
+private val CoastalLightColorScheme = lightColorScheme(
     primary = LightPalette.clinicalTeal,
     onPrimary = Color.White,
     primaryContainer = LightPalette.clinicalTealContainer,
     onPrimaryContainer = LightPalette.clinicalTealDeep,
-    secondary = Color(0xFF3E524C),
+    secondary = Color(0xFF2E5E88),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE3EAE6),
-    onSecondaryContainer = Color(0xFF1E2D29),
+    secondaryContainer = Color(0xFFE3EFF9),
+    onSecondaryContainer = Color(0xFF173B5C),
     tertiary = LightPalette.safeEmerald,
     onTertiary = Color.White,
     tertiaryContainer = LightPalette.safeEmeraldSurface,
@@ -224,20 +224,20 @@ private val ApothecaryLightColorScheme = lightColorScheme(
     errorContainer = LightPalette.criticalCrimsonSurface,
     onErrorContainer = LightPalette.criticalCrimsonDark,
     outline = LightPalette.slateBorder,
-    outlineVariant = Color(0xFFE3E7E1),
+    outlineVariant = Color(0xFFE4ECF3),
 )
 
-private val ApothecaryDarkColorScheme = darkColorScheme(
+private val CoastalDarkColorScheme = darkColorScheme(
     primary = DarkPalette.clinicalTeal,
-    onPrimary = Color(0xFF0E241E),
+    onPrimary = Color(0xFF062925),
     primaryContainer = DarkPalette.clinicalTealContainer,
     onPrimaryContainer = DarkPalette.clinicalTealDeep,
-    secondary = Color(0xFFA2B8B0),
-    onSecondary = Color(0xFF152520),
-    secondaryContainer = Color(0xFF24332E),
-    onSecondaryContainer = Color(0xFFDDE6E2),
+    secondary = Color(0xFF7CB2E2),
+    onSecondary = Color(0xFF0D253B),
+    secondaryContainer = Color(0xFF1D344A),
+    onSecondaryContainer = Color(0xFFD6E9FA),
     tertiary = DarkPalette.safeEmerald,
-    onTertiary = Color(0xFF0E2419),
+    onTertiary = Color(0xFF072A1C),
     tertiaryContainer = DarkPalette.safeEmeraldSurface,
     onTertiaryContainer = DarkPalette.safeEmeraldDark,
     background = DarkPalette.slateSurface,
@@ -247,17 +247,13 @@ private val ApothecaryDarkColorScheme = darkColorScheme(
     surfaceVariant = DarkPalette.surfaceTint,
     onSurfaceVariant = DarkPalette.inkSecondary,
     error = DarkPalette.criticalCrimson,
-    onError = Color(0xFF360E12),
+    onError = Color(0xFF3E0B13),
     errorContainer = DarkPalette.criticalCrimsonSurface,
     onErrorContainer = DarkPalette.criticalCrimsonDark,
     outline = DarkPalette.slateBorder,
-    outlineVariant = Color(0xFF27312E),
+    outlineVariant = Color(0xFF233447),
 )
 
-/**
- * Deliberate radius hierarchy: tighter nested controls (8-12dp), structured ledger surfaces (16dp),
- * and sculptural framing reserved for optical viewfinders and modal sheets (24-28dp).
- */
 private val ApothecaryShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(10.dp),
@@ -266,11 +262,6 @@ private val ApothecaryShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
-/**
- * Dual-voice Pharmacopoeia Typography:
- * Editorial serif headlines lend calm clinical gravitas and distinction, while clean humanist
- * sans-serif carries interactive UI, multilingual body copy, and tabular clinical metrics.
- */
 private val PharmacopoeiaTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = FontFamily.Serif,
@@ -361,7 +352,7 @@ fun PillScopeTheme(
     content: @Composable () -> Unit,
 ) {
     val palette = if (darkTheme) DarkPalette else LightPalette
-    val colorScheme = if (darkTheme) ApothecaryDarkColorScheme else ApothecaryLightColorScheme
+    val colorScheme = if (darkTheme) CoastalDarkColorScheme else CoastalLightColorScheme
     CompositionLocalProvider(LocalPillScopePalette provides palette) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,

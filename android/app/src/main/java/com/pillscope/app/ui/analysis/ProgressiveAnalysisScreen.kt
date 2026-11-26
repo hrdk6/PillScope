@@ -1023,12 +1023,13 @@ private fun RiskGaugeHeroSurface(
                             )
                         }
 
-                        // Quiet segmented matte scale with crisp gaps so round caps never overlap
+                        // Crisp segmented clinical scale with balanced luminous presence
+                        val segAlpha = if (palette.isDark) 0.44f else 0.36f
                         val segments = listOf(
-                            Triple(180f, 38f, palette.safeEmerald.copy(alpha = 0.24f)),
-                            Triple(226f, 38f, palette.minorBlue.copy(alpha = 0.24f)),
-                            Triple(272f, 38f, palette.moderateAmber.copy(alpha = 0.26f)),
-                            Triple(318f, 42f, palette.criticalCrimson.copy(alpha = 0.28f)),
+                            Triple(180f, 38f, palette.safeEmerald.copy(alpha = segAlpha)),
+                            Triple(226f, 38f, palette.minorBlue.copy(alpha = segAlpha)),
+                            Triple(272f, 38f, palette.moderateAmber.copy(alpha = segAlpha + 0.04f)),
+                            Triple(318f, 42f, palette.criticalCrimson.copy(alpha = segAlpha + 0.06f)),
                         )
                         for ((startAngle, sweep, color) in segments) {
                             drawArc(

@@ -172,6 +172,8 @@ fun OnboardingConsentScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     DisclosureLedgerRow(
                         icon = Icons.Default.MedicalInformation,
+                        iconContainer = PillScopeColors.CriticalCrimsonSurface,
+                        iconTint = PillScopeColors.CriticalCrimson,
                         title = strings.medicalDisclaimerTitle,
                         points = listOf(
                             strings.medicalDisclaimerPoint1,
@@ -184,6 +186,8 @@ fun OnboardingConsentScreen(
                     )
                     DisclosureLedgerRow(
                         icon = Icons.Default.PrivacyTip,
+                        iconContainer = PillScopeColors.ClinicalTealContainer,
+                        iconTint = PillScopeColors.ClinicalTealDeep,
                         title = strings.onDeviceCameraTitle,
                         points = listOf(
                             strings.onDeviceCameraPoint1,
@@ -196,6 +200,8 @@ fun OnboardingConsentScreen(
                     )
                     DisclosureLedgerRow(
                         icon = Icons.Default.Shield,
+                        iconContainer = PillScopeColors.MinorBlueSurface,
+                        iconTint = PillScopeColors.MinorBlue,
                         title = strings.privacyControlsTitle,
                         points = listOf(
                             strings.privacyControlsPoint1,
@@ -290,6 +296,8 @@ private fun ConsentCheckboxRow(
 @Composable
 private fun DisclosureLedgerRow(
     icon: ImageVector,
+    iconContainer: Color,
+    iconTint: Color,
     title: String,
     points: List<String>,
 ) {
@@ -302,16 +310,16 @@ private fun DisclosureLedgerRow(
     ) {
         Surface(
             shape = CircleShape,
-            color = PillScopeColors.ClinicalTealContainer,
+            color = iconContainer,
             modifier = Modifier
                 .padding(top = 2.dp)
-                .size(34.dp),
+                .size(36.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = PillScopeColors.ClinicalTealDeep,
+                    tint = iconTint,
                     modifier = Modifier.size(18.dp),
                 )
             }

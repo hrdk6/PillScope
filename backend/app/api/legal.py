@@ -24,29 +24,29 @@ _PRIVACY_HTML = """<!DOCTYPE html>
   <title>PillScope Privacy Policy &amp; Medical Disclaimer</title>
   <style>
     :root {
-      --bg: #f5f6f3;
+      --bg: #f6f9fb;
       --surface: #ffffff;
-      --ink: #18201d;
-      --muted: #535f5a;
-      --heading: #13342c;
-      --accent: #1f4f43;
-      --border: #d4d9d2;
-      --callout-bg: #f7efe3;
-      --callout-border: #9a5a16;
-      --callout-ink: #693b0b;
+      --ink: #102a43;
+      --muted: #486581;
+      --heading: #0a5851;
+      --accent: #0d7a6f;
+      --border: #d8e2ec;
+      --callout-bg: #fff5e4;
+      --callout-border: #c97a10;
+      --callout-ink: #7f4806;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #131716;
-        --surface: #1b211f;
-        --ink: #ecefe9;
-        --muted: #9ca9a4;
-        --heading: #c7ddd5;
-        --accent: #7fb3a2;
-        --border: #303b37;
-        --callout-bg: #312617;
-        --callout-border: #d4a05a;
-        --callout-ink: #efe0c6;
+        --bg: #0f1722;
+        --surface: #172231;
+        --ink: #f0f5fa;
+        --muted: #9fb3c8;
+        --heading: #b5eae2;
+        --accent: #46b5a7;
+        --border: #2c3f56;
+        --callout-bg: #392b17;
+        --callout-border: #e8ae52;
+        --callout-ink: #fce5be;
       }
     }
     body {
@@ -123,41 +123,41 @@ def _render_deletion_page(
   <title>PillScope Account &amp; Data Deletion</title>
   <style>
     :root {{
-      --bg: #f5f6f3;
+      --bg: #f6f9fb;
       --surface: #ffffff;
-      --form-bg: #eaece7;
-      --ink: #18201d;
-      --heading: #13342c;
-      --border: #d4d9d2;
+      --form-bg: #ecf2f7;
+      --ink: #102a43;
+      --heading: #0a5851;
+      --border: #d8e2ec;
       --input-bg: #ffffff;
-      --input-border: #a5b0a9;
-      --code-bg: #e3e7e1;
-      --danger: #921b24;
-      --success-bg: #e7f0eb;
-      --success-ink: #1a4531;
-      --success-border: #286448;
-      --error-bg: #f8e8e9;
-      --error-ink: #6d131a;
-      --error-border: #9e1f28;
+      --input-border: #9fb3c8;
+      --code-bg: #e4ecf3;
+      --danger: #be2334;
+      --success-bg: #e4f6ec;
+      --success-ink: #125436;
+      --success-border: #1e8255;
+      --error-bg: #fdecee;
+      --error-ink: #8a1724;
+      --error-border: #c82838;
     }}
     @media (prefers-color-scheme: dark) {{
       :root {{
-        --bg: #131716;
-        --surface: #1b211f;
-        --form-bg: #232b28;
-        --ink: #ecefe9;
-        --heading: #c7ddd5;
-        --border: #303b37;
-        --input-bg: #131716;
-        --input-border: #44534e;
-        --code-bg: #27312e;
-        --danger: #8c1e26;
-        --success-bg: #192c22;
-        --success-ink: #cce3d6;
-        --success-border: #7bb295;
-        --error-bg: #351b1e;
-        --error-ink: #f3cdd0;
-        --error-border: #d9787e;
+        --bg: #0f1722;
+        --surface: #172231;
+        --form-bg: #202f42;
+        --ink: #f0f5fa;
+        --heading: #b5eae2;
+        --border: #2c3f56;
+        --input-bg: #0f1722;
+        --input-border: #3b536e;
+        --code-bg: #233447;
+        --danger: #b52536;
+        --success-bg: #153227;
+        --success-ink: #c7f0dc;
+        --success-border: #59c092;
+        --error-bg: #3c1b24;
+        --error-ink: #ffd3d8;
+        --error-border: #ee6b78;
       }}
     }}
     body {{
