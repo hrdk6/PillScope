@@ -47,68 +47,66 @@ PillScope separates hard clinical safety rules, probabilistic molecular scoring,
 ```mermaid
 flowchart TB
     subgraph SG_ANDROID["Android Client (Kotlin, Jetpack Compose M3, Hilt, Room)"]
-        CAM["CameraX + LiteRT CompiledModel<br/>128x128x3 Blur/Glare Gate & Crop"] --> MLKIT["ML Kit Latin OCR<br/>OnDeviceSaltChipExtractor"]
-        MLKIT --> UI_SCAN["CameraScanScreen<br/>1-Tap Salt Confirmation"]
-        UI_SAFE["ProgressiveAnalysisScreen<br/>Locked Crimson Banner"] --> ROOM[("Room SQLite<br/>cabinet_medications<br/>cached_scan_reports")]
-        UI_CAB["CabinetScreen<br/>Offline-First Sync"] <--> ROOM
+        direction LR
+        CAM["CameraX + LiteRT<br/>Blur/Glare Gate & Crop"] --> MLKIT["ML Kit OCR<br/>Salt Chip Extractor"] --> UI_SCAN["CameraScanScreen<br/>1-Tap Confirmation"]
+        UI_SAFE["ProgressiveAnalysisScreen<br/>Locked Crimson Banner"] --> ROOM[("Room SQLite<br/>Cabinet + Scan Cache")] <--> UI_CAB["CabinetScreen<br/>Offline-First Sync"]
     end
 
     subgraph SG_API["FastAPI Backend (Python 3.12, Async SQLAlchemy 2.0, OTel Middleware)"]
-        AUTH["JWT HS256 + Argon2id<br/>/api/v1/auth/*"]
-        RESOLVE["BrandSaltResolver<br/>Exact → pg_trgm → Salt → OCR"]
-        CAB_API["Cabinet & Duplicate API<br/>/api/v1/cabinet/*"]
-        T1["Tier 1: Deterministic Gate<br/>Duplicate Salts + Curated MAJOR<br/>Locks safety_banner_locked"]
-        T2["Tier 2: Molecular ML<br/>RDKit 2098-d + LGBM / PyTorch<br/>Monotonic Risk Merge"]
-        T3["Tier 3: Hybrid RAG<br/>FTS + pgvector HNSW<br/>RRF k=60 + Cross-Encoder"]
-        T4["Tier 4: LLM + Verifier<br/>Gemini / OpenAI / Extractive<br/>0% Fabricated Citations"]
-        T1 --> T2 --> T3 --> T4
+        direction TB
+        subgraph SG_ROUTES["REST & Auth Routers"]
+            direction LR
+            AUTH["JWT HS256 + Argon2id<br/>/api/v1/auth/*"]
+            RESOLVE["BrandSaltResolver<br/>Exact → pg_trgm → Salt → OCR"]
+            CAB_API["Cabinet & Duplicate API<br/>/api/v1/cabinet/*"]
+        end
+        subgraph SG_PIPE["4-Tier Streaming Safety Pipeline (POST /api/v1/scans/analyze)"]
+            direction LR
+            T1["Tier 1: Deterministic<br/>Duplicates + MAJOR DDI<br/>Locks Banner"] --> T2["Tier 2: Molecular ML<br/>RDKit 2098-d<br/>LGBM / PyTorch"] --> T3["Tier 3: Hybrid RAG<br/>FTS + HNSW<br/>RRF + Reranker"] --> T4["Tier 4: LLM + Verifier<br/>Gemini / OpenAI<br/>0% Fake Citations"]
+        end
     end
 
-    subgraph SG_DATA["Storage, Workers & External Clinical Intelligence"]
-        PG[("PostgreSQL 16 + pgvector<br/>6 Tables: HNSW, GIN Trigram, FTS")]
-        REDIS[("Redis 7<br/>ARQ Job Queue")]
-        ARQ["ARQ Async Worker<br/>openFDA & DailyMed Ingestion"]
-        SOURCES["DDInter 2.0, openFDA<br/>DailyMed SPL, PubChem<br/>Indian Medicine CSV"]
-        LLM_EXT["Gemini 2.5 Flash / OpenAI<br/>BGE Embeddings & Reranker"]
+    subgraph SG_INFRA["Storage, Background Workers & External Intelligence"]
+        direction LR
+        PG[("PostgreSQL 16 + pgvector<br/>6 Tables: HNSW, Trigram, FTS")]
+        ARQ["Redis 7 + ARQ Worker<br/>openFDA, DailyMed, DDInter"]
+        LLM_EXT["Gemini 2.5 / OpenAI<br/>BGE Embeddings & Reranker"]
         OBS["OpenTelemetry OTLP<br/>Langfuse & MLflow"]
-        SOURCES --> ARQ --> PG
-        REDIS --> ARQ
+        ARQ --> PG
     end
 
-    UI_SCAN -->|"REST /api/v1/drugs/resolve"| RESOLVE
-    UI_CAB <-->|"REST /api/v1/cabinet/*"| CAB_API
-    UI_SCAN -->|"POST /api/v1/scans/analyze (SSE)"| T1
+    UI_SCAN -->|"REST /drugs/resolve"| RESOLVE
+    UI_CAB <-->|"REST /cabinet/*"| CAB_API
+    UI_SCAN -->|"POST SSE Stream"| T1
     T4 -.->|"SSE Events id:1..5"| UI_SAFE
 
-    AUTH --> PG
-    RESOLVE --> PG
-    CAB_API --> PG
-    T1 --> PG
-    T2 --> PG
-    T3 --> PG
-    T4 --> PG
-    T4 <--> LLM_EXT
+    SG_API -->|"Async SQL / pgvector"| PG
+    T4 <-->|"Structured Synthesis"| LLM_EXT
     SG_API -.->|"x-trace-id + 6 Spans"| OBS
 
-    style SG_ANDROID fill:#F0FDFA,stroke:#0F766E,stroke-width:2px,color:#0F172A
-    style SG_API fill:#F8FAFC,stroke:#334155,stroke-width:2px,color:#0F172A
-    style SG_DATA fill:#EFF6FF,stroke:#1D4ED8,stroke-width:2px,color:#0F172A
+    style SG_ANDROID fill:#0F766E18,stroke:#14B8A6,stroke-width:2px
+    style SG_API fill:#64748B14,stroke:#64748B,stroke-width:2px
+    style SG_ROUTES fill:#0F766E10,stroke:#0F766E,stroke-width:1px,stroke-dasharray:4 3
+    style SG_PIPE fill:#B91C1C14,stroke:#EF4444,stroke-width:1.5px
+    style SG_INFRA fill:#1D4ED818,stroke:#3B82F6,stroke-width:2px
 
-    classDef teal fill:#0F766E,stroke:#115E59,stroke-width:1.5px,color:#FFFFFF
-    classDef crimson fill:#B91C1C,stroke:#7F1D1D,stroke-width:2px,color:#FFFFFF
-    classDef cobalt fill:#1D4ED8,stroke:#1E40AF,stroke-width:1.5px,color:#FFFFFF
-    classDef indigo fill:#4F46E5,stroke:#3730A3,stroke-width:1.5px,color:#FFFFFF
-    classDef emerald fill:#15803D,stroke:#166534,stroke-width:1.5px,color:#FFFFFF
-    classDef slate fill:#0F172A,stroke:#334155,stroke-width:1.5px,color:#FFFFFF
-    classDef amber fill:#B45309,stroke:#92400E,stroke-width:1.5px,color:#FFFFFF
+    linkStyle default stroke:#64748B,stroke-width:1.8px
+
+    classDef teal fill:#0F766E,stroke:#2DD4BF,stroke-width:1.5px,color:#FFFFFF
+    classDef crimson fill:#B91C1C,stroke:#FCA5A5,stroke-width:2px,color:#FFFFFF
+    classDef cobalt fill:#1D4ED8,stroke:#93C5FD,stroke-width:1.5px,color:#FFFFFF
+    classDef indigo fill:#4F46E5,stroke:#A5B4FC,stroke-width:1.5px,color:#FFFFFF
+    classDef emerald fill:#15803D,stroke:#86EFAC,stroke-width:1.5px,color:#FFFFFF
+    classDef slate fill:#1E293B,stroke:#94A3B8,stroke-width:1.5px,color:#FFFFFF
+    classDef amber fill:#B45309,stroke:#FCD34D,stroke-width:1.5px,color:#FFFFFF
 
     class CAM,MLKIT,UI_SCAN,UI_CAB,RESOLVE,CAB_API teal
     class T1,UI_SAFE crimson
-    class T2,PG,ARQ cobalt
+    class T2,PG cobalt
     class T3,LLM_EXT,OBS indigo
     class T4 emerald
-    class AUTH,ROOM,SOURCES slate
-    class REDIS amber
+    class AUTH,ROOM slate
+    class ARQ amber
 ```
 
 ---
@@ -274,23 +272,27 @@ Blister foil strips frequently produce specular glare and motion blur that corru
 
 ```mermaid
 flowchart TB
-    subgraph SG_CAM["1. CameraX Frame Gate & Quality Preprocessor (On-Device)"]
-        F1["CameraX ImageAnalysis<br/>STRATEGY_KEEP_ONLY_LATEST, 350ms Throttle"] --> F2["Rotate Upright & Scale 128x128 RGB"]
-        F2 --> Q1["LiteRT CompiledModel<br/>label_quality_cropper.tflite (44.3 KB, CPU)"]
-        F2 -.->|"Model unavailable"| Q2["Signal Fallback: laplacian_glare_roi<br/>BT.601 Luma + 4-Neighbor Laplacian"]
-        Q1 --> Q3{{"Quality Gate: blur >= 0.42 AND glare <= 0.22"}}
-        Q2 --> Q3
-        Q3 -->|"Rejected"| Q4["Skip OCR & Show Live Guidance<br/>Tilt to reduce foil glare / Hold steady (Amber Reticle)"]
+    subgraph SG_CAM["1. On-Device CameraX & Quality Gate"]
+        direction TB
+        F1["CameraX ImageAnalysis (350ms Throttle)<br/>Rotate Upright & Scale 128x128 RGB"]
+        Q1["LiteRT CompiledModel<br/>label_quality_cropper.tflite (44.3 KB)"]
+        Q2["Signal Fallback: laplacian_glare_roi<br/>BT.601 Luma + 4-Neighbor Laplacian"]
+        Q3{{"Quality Gate: blur >= 0.42 AND glare <= 0.22"}}
+        Q4["Drop OCR & Show Guidance<br/>Tilt for glare / Hold steady (Amber Reticle)"]
+        F1 --> Q1 --> Q3
+        F1 -.->|"Unavailable"| Q2 --> Q3
+        Q3 -->|"Rejected"| Q4
     end
 
-    subgraph SG_OCR["2. Cropped OCR & On-Device Salt Extraction"]
-        O1["Crop Label ROI (Green Reticle)"] --> O2["ML Kit Latin OCR<br/>TextRecognition.getClient"]
-        O2 --> O3["OnDeviceSaltChipExtractor<br/>21 Synonyms, 15 Inorganics, 46 Counterions, 42 Noise Words"]
+    subgraph SG_OCR["2. Cropped OCR & Salt Normalization"]
+        direction LR
+        O1["Crop Label ROI<br/>(Green Reticle)"] --> O2["ML Kit Latin OCR<br/>TextRecognition"] --> O3["OnDeviceSaltChipExtractor<br/>21 Synonyms, 15 Inorganics, 48 Counterions"]
     end
 
-    subgraph SG_RESOLVE["3. Hybrid Brand-to-Salt Resolution & 1-Tap Confirmation"]
+    subgraph SG_RESOLVE["3. Brand-to-Salt Resolution & 1-Tap Confirmation"]
+        direction TB
         R1["POST /api/v1/drugs/resolve (280ms Debounce)"]
-        R2["4-Stage BrandSaltResolver<br/>1. exact_brand (1.0 / 0.97)  2. pg_trgm >= 0.25<br/>3. exact_salt (0.85)  4. ocr_salt_parse (0.65)"]
+        R2["4-Stage BrandSaltResolver<br/>exact_brand → pg_trgm >= 0.25 → exact_salt → ocr_salt_parse"]
         R3["Offline Fallback<br/>Local Salt Chips (confidence = 0.70)"]
         R4["1-Tap Salt Confirmation Chip → POST /api/v1/scans/analyze"]
         R1 -->|"Online"| R2 --> R4
@@ -300,17 +302,19 @@ flowchart TB
     Q3 -->|"Accepted"| O1
     O3 --> R1
 
-    style SG_CAM fill:#FFFBEB,stroke:#B45309,stroke-width:2px,color:#0F172A
-    style SG_OCR fill:#EFF6FF,stroke:#1D4ED8,stroke-width:2px,color:#0F172A
-    style SG_RESOLVE fill:#F0FDF4,stroke:#15803D,stroke-width:2px,color:#0F172A
+    style SG_CAM fill:#B4530918,stroke:#F59E0B,stroke-width:2px
+    style SG_OCR fill:#1D4ED818,stroke:#3B82F6,stroke-width:2px
+    style SG_RESOLVE fill:#15803D18,stroke:#22C55E,stroke-width:2px
 
-    classDef teal fill:#0F766E,stroke:#115E59,color:#FFFFFF
-    classDef amber fill:#B45309,stroke:#92400E,color:#FFFFFF
-    classDef cobalt fill:#1D4ED8,stroke:#1E40AF,color:#FFFFFF
-    classDef emerald fill:#15803D,stroke:#166534,color:#FFFFFF
-    classDef slate fill:#0F172A,stroke:#334155,color:#FFFFFF
+    linkStyle default stroke:#64748B,stroke-width:1.8px
 
-    class F1,F2 teal
+    classDef teal fill:#0F766E,stroke:#2DD4BF,stroke-width:1.5px,color:#FFFFFF
+    classDef amber fill:#B45309,stroke:#FCD34D,stroke-width:1.5px,color:#FFFFFF
+    classDef cobalt fill:#1D4ED8,stroke:#93C5FD,stroke-width:1.5px,color:#FFFFFF
+    classDef emerald fill:#15803D,stroke:#86EFAC,stroke-width:1.5px,color:#FFFFFF
+    classDef slate fill:#1E293B,stroke:#94A3B8,stroke-width:1.5px,color:#FFFFFF
+
+    class F1 teal
     class Q1,Q2,Q3,Q4 amber
     class O1,O2,O3 cobalt
     class R1,R2,R3 slate
@@ -361,35 +365,33 @@ flowchart TB
 `CabinetRepository` writes every mutation to Room immediately so users can manage medications and run local duplicate-salt checks offline, reconciling pending operations against PostgreSQL when connectivity returns.
 
 ```mermaid
-flowchart LR
-    ADD["User Adds Medication<br/>addMedicationOfflineFirst()"] --> DUP["checkOfflineDuplicates()<br/>Instant local active-salt overlap check"]
-    DUP --> PC(["PENDING_CREATE<br/>id = local-UUID"])
+flowchart TB
+    ADD["Add Medication (addMedicationOfflineFirst)<br/>+ Instant Local Duplicate-Salt Check"] --> PC(["PENDING_CREATE<br/>id = local-UUID"])
 
-    PC -->|"POST /api/v1/cabinet/medications<br/>201 Created"| SYNCED(["SYNCED<br/>Server UUID persisted"])
-    PC -->|"User toggles active<br/>stays local until created"| PC
-    PC -->|"User deletes locally"| GONE(["Deleted from Room<br/>No remote call needed"])
+    PC -->|"POST /cabinet/medications (201)"| SYNCED(["SYNCED<br/>Server UUID persisted"])
+    PC -->|"Toggle active offline"| PC
+    PC -->|"Delete locally"| GONE(["Removed from Room"])
 
-    SYNCED -->|"User toggles is_active<br/>PATCH offline / fails"| PU(["PENDING_UPDATE"])
-    PU -->|"PATCH /api/v1/cabinet/medications/{id}<br/>200 OK"| SYNCED
+    SYNCED -->|"Toggle active offline"| PU(["PENDING_UPDATE"])
+    PU -->|"PATCH /cabinet/medications/{id} (200)"| SYNCED
 
-    SYNCED -->|"User taps Delete<br/>hidden from UI queries"| PD(["PENDING_DELETE"])
-    PD -->|"DELETE /api/v1/cabinet/medications/{id}<br/>204 or 404"| GONE
+    SYNCED -->|"Delete medication<br/>(hidden from UI)"| PD(["PENDING_DELETE"])
+    PD -->|"DELETE /cabinet/medications/{id} (204/404)"| GONE
 
-    SYNC_BTN["syncWithBackend()<br/>1. Replay PENDING_* queue<br/>2. GET active_only=false<br/>3. clearSynced() & upsert remote"] -.-> PC
-    SYNC_BTN -.-> PU
-    SYNC_BTN -.-> PD
-    SYNC_BTN -.-> SYNCED
+    SYNC_BTN["syncWithBackend()<br/>Replay PENDING_* queue → GET active_only=false → Reconcile Room"] -.->|"Reconciles all pending states"| SYNCED
 
-    classDef emerald fill:#15803D,stroke:#166534,stroke-width:2px,color:#FFFFFF
-    classDef amber fill:#B45309,stroke:#92400E,stroke-width:1.5px,color:#FFFFFF
-    classDef crimson fill:#B91C1C,stroke:#7F1D1D,stroke-width:1.5px,color:#FFFFFF
-    classDef teal fill:#0F766E,stroke:#115E59,stroke-width:1.5px,color:#FFFFFF
-    classDef slate fill:#334155,stroke:#0F172A,stroke-width:1.5px,color:#FFFFFF
+    linkStyle default stroke:#64748B,stroke-width:1.8px
+
+    classDef emerald fill:#15803D,stroke:#86EFAC,stroke-width:2px,color:#FFFFFF
+    classDef amber fill:#B45309,stroke:#FCD34D,stroke-width:1.5px,color:#FFFFFF
+    classDef crimson fill:#B91C1C,stroke:#FCA5A5,stroke-width:1.5px,color:#FFFFFF
+    classDef teal fill:#0F766E,stroke:#2DD4BF,stroke-width:1.5px,color:#FFFFFF
+    classDef slate fill:#1E293B,stroke:#94A3B8,stroke-width:1.5px,color:#FFFFFF
 
     class SYNCED emerald
     class PC,PU amber
     class PD crimson
-    class ADD,DUP,SYNC_BTN teal
+    class ADD,SYNC_BTN teal
     class GONE slate
 ```
 
@@ -402,9 +404,8 @@ To flag potentially hazardous combinations that are not yet present in curated i
 ```mermaid
 flowchart TB
     subgraph SG_PREP["1. Data Prep, SMILES Cache & Zero-Leakage Partition"]
-        D1["DDInter 2.0 CSVs<br/>14 ATC Codes (A..V)"] --> D2["PubChemSmilesResolver<br/>SQLite Cache + Seed CSV (4 req/s)"]
-        D2 --> D3["RDKit Canonical SMILES<br/>+ Murcko Scaffolds"]
-        D3 --> S1["Greedy Graph Partition (60/20/20)<br/>Drop Cross-Boundary Pairs<br/>Assert drug_overlap == 0 & scaffold_overlap == 0"]
+        direction LR
+        D1["DDInter 2.0 CSVs<br/>14 ATC Codes (A..V)"] --> D2["PubChem SQLite Cache<br/>+ Seed CSV (4 req/s)"] --> D3["RDKit Canonical SMILES<br/>+ Murcko Scaffolds"] --> S1["Disjoint Split (60/20/20)<br/>0 Drug & 0 Scaffold Overlap"]
     end
 
     subgraph SG_FEAT["2. Symmetric 2,098-d Pair Featurizer"]
@@ -412,34 +413,36 @@ flowchart TB
     end
 
     subgraph SG_TRAIN["3. Model Bake-Off, Thresholding & MLflow Export"]
+        direction TB
         M1["LightGBM Classifier<br/>300 trees, lr 0.05, 31 leaves<br/>1.5x MAJOR class weight boost"]
-        M2["PyTorch MLP (256 → 128 → 4)<br/>LayerNorm, GELU, Dropout 0.40<br/>AdamW, CosineLR, Label Smooth 0.05"]
-        TUNE["Validation Threshold Sweep (0.15..0.75)<br/>F2 + 0.25 bonus if Recall >= 0.90"]
-        WIN["Composite Selection Winner<br/>0.40 PR-AUC + 0.30 Recall + 0.20 Macro-F1 + 0.10 (1-Brier)"]
-        ART["ddi_ensemble.joblib + .report.json<br/>Manifest (Thresholds + Train Drugs/Scaffolds) → MLflow"]
+        M2["PyTorch MLP (256 → 128 → 4)<br/>LayerNorm, GELU, Dropout 0.40<br/>AdamW, CosineLR, Smooth 0.05"]
+        TUNE["Threshold Sweep (0.15..0.75) → Composite Winner<br/>0.40 PR-AUC + 0.30 Recall + 0.20 Macro-F1 + 0.10 (1-Brier)"]
+        ART["ddi_ensemble.joblib + .report.json + MLflow Run<br/>Manifest stores thresholds + train drugs/scaffolds"]
         M1 --> TUNE
         M2 --> TUNE
-        TUNE --> WIN --> ART
+        TUNE --> ART
     end
 
     S1 --> FE
     FE --> M1
     FE --> M2
 
-    style SG_PREP fill:#F0FDFA,stroke:#0F766E,stroke-width:2px,color:#0F172A
-    style SG_FEAT fill:#EFF6FF,stroke:#1D4ED8,stroke-width:2px,color:#0F172A
-    style SG_TRAIN fill:#EEF2FF,stroke:#4F46E5,stroke-width:2px,color:#0F172A
+    style SG_PREP fill:#0F766E18,stroke:#14B8A6,stroke-width:2px
+    style SG_FEAT fill:#1D4ED818,stroke:#3B82F6,stroke-width:2px
+    style SG_TRAIN fill:#4F46E518,stroke:#6366F1,stroke-width:2px
 
-    classDef teal fill:#0F766E,stroke:#115E59,color:#FFFFFF
-    classDef crimson fill:#B91C1C,stroke:#7F1D1D,color:#FFFFFF
-    classDef cobalt fill:#1D4ED8,stroke:#1E40AF,color:#FFFFFF
-    classDef indigo fill:#4F46E5,stroke:#3730A3,color:#FFFFFF
-    classDef emerald fill:#15803D,stroke:#166534,color:#FFFFFF
+    linkStyle default stroke:#64748B,stroke-width:1.8px
+
+    classDef teal fill:#0F766E,stroke:#2DD4BF,stroke-width:1.5px,color:#FFFFFF
+    classDef crimson fill:#B91C1C,stroke:#FCA5A5,stroke-width:1.5px,color:#FFFFFF
+    classDef cobalt fill:#1D4ED8,stroke:#93C5FD,stroke-width:1.5px,color:#FFFFFF
+    classDef indigo fill:#4F46E5,stroke:#A5B4FC,stroke-width:1.5px,color:#FFFFFF
+    classDef emerald fill:#15803D,stroke:#86EFAC,stroke-width:1.5px,color:#FFFFFF
 
     class D1,D2,D3 teal
     class S1 crimson
     class FE cobalt
-    class M1,M2,TUNE,WIN indigo
+    class M1,M2,TUNE indigo
     class ART emerald
 ```
 
@@ -467,36 +470,31 @@ flowchart TB
 Clinical explanations are grounded exclusively in official regulatory monographs ingested from openFDA and DailyMed SPL XML, retrieved through hybrid lexical + dense vector search, reranked by a cross-encoder, and audited by a deterministic post-generation verifier before delivery.
 
 ```mermaid
-flowchart TD
-    subgraph SG_INGEST["Offline / Async Monograph Ingestion (ARQ Worker + CLI)"]
+flowchart TB
+    subgraph SG_INGEST["1. Offline / ARQ Monograph Ingestion"]
         direction LR
-        SRC["openFDA JSON / DailyMed HL7 SPL XML<br/>LOINC: 34073-7, 43685-7, 34068-7, 34070-3"]
-        CHK["Sentence-Aware Chunker<br/>max 1,200 chars, 180-char overlap<br/>SHA-256 content hash"]
-        EMB["Embedding Provider (768-d L2)<br/>Local BGE / Gemini / OpenAI / Hashing"]
-        UPS["Idempotent Upsert → monograph_chunks<br/>UNIQUE (set_id, loinc_section_code, chunk_index)"]
-        SRC --> CHK --> EMB --> UPS
+        SRC["openFDA JSON / DailyMed SPL<br/>LOINC 34073-7, 43685-7, 34068-7, 34070-3"] --> CHK["Sentence Chunker<br/>1,200 chars, 180 overlap"] --> EMB["768-d Embeddings<br/>BGE / Gemini / OpenAI"]
     end
 
-    subgraph SG_RETR["Online Hybrid Retrieval (HybridRagRetriever)"]
-        direction LR
-        Q["Salt-Scoped Query<br/>Resolved + Cabinet + Interaction Salts"]
-        LEX["PostgreSQL FTS (GIN)<br/>to_tsquery OR, ts_rank_cd(..., 32)<br/>Top 12 Lexical"]
-        DEN["pgvector HNSW Cosine<br/>m=16, ef_construction=64<br/>sim >= 0.20, Top 12 Dense"]
-        RRF["Reciprocal Rank Fusion<br/>score = sum 1 / (60 + rank)"]
-        RER["Cross-Encoder Reranker<br/>BAAI/bge-reranker-base<br/>(or LexicalCrossReranker) → Top 5"]
-        Q --> LEX --> RRF
-        Q --> DEN --> RRF
-        RRF --> RER
-    end
+    CORPUS[("monograph_chunks<br/>GIN FTS + pgvector HNSW (m=16, ef=64)")]
 
-    subgraph SG_VERIFY["Tier 4 Grounded Synthesis & Adversarial Verifier"]
+    subgraph SG_RETR["2. Online Hybrid Retrieval (HybridRagRetriever)"]
         direction TB
-        EMPTY{"Retrieved<br/>citations > 0?"}
-        ABST["Safe Abstention<br/>abstained=true (NO_INDEXED_MONOGRAPHS)<br/>Preserves locked MAJOR banner"]
+        LEX["PostgreSQL FTS (GIN)<br/>ts_rank_cd(..., 32) → Top 12"]
+        DEN["pgvector HNSW Cosine<br/>sim >= 0.20 → Top 12"]
+        RRF["Reciprocal Rank Fusion (k=60)<br/>+ Cross-Encoder Reranker (BGE) → Top 5"]
+        LEX --> RRF
+        DEN --> RRF
+    end
+
+    subgraph SG_VERIFY["3. Tier 4 Grounded Synthesis & Adversarial Verifier"]
+        direction TB
+        EMPTY{{"Retrieved citations > 0?"}}
+        ABST["Safe Abstention (NO_INDEXED_MONOGRAPHS)<br/>Preserves locked MAJOR banner"]
         SYN["Briefing Generator (temp=0.1)<br/>Gemini 2.5 Flash / OpenAI / Extractive"]
-        VER{{"verify_clinical_briefing()<br/>Check unknown/inline UUIDs, empty citations & downgrade regexes"}}
+        VER{{"verify_clinical_briefing()<br/>Block unknown/inline UUIDs, missing citations & downgrade regexes"}}
         PASS["Emit Verified ClinicalSummary<br/>citation_verified = true"]
-        FALL["Override with Deterministic Extractive<br/>Grounded Summary + Record blocked_citation_ids"]
+        FALL["Override with Deterministic Extractive<br/>Grounded Summary + Log blocked_citation_ids"]
 
         EMPTY -->|"No"| ABST
         EMPTY -->|"Yes"| SYN --> VER
@@ -504,22 +502,27 @@ flowchart TD
         VER -->|"Violation detected"| FALL
     end
 
-    UPS -.->|"Indexed Corpus"| LEX
-    UPS -.->|"Indexed Corpus"| DEN
-    RER --> EMPTY
+    EMB --> CORPUS
+    CORPUS --> LEX
+    CORPUS --> DEN
+    RRF --> EMPTY
 
-    style SG_INGEST fill:#F0FDFA,stroke:#0F766E,stroke-width:2px,color:#0F172A
-    style SG_RETR fill:#EEF2FF,stroke:#4F46E5,stroke-width:2px,color:#0F172A
-    style SG_VERIFY fill:#F0FDF4,stroke:#15803D,stroke-width:2px,color:#0F172A
+    style SG_INGEST fill:#0F766E18,stroke:#14B8A6,stroke-width:2px
+    style SG_RETR fill:#4F46E518,stroke:#6366F1,stroke-width:2px
+    style SG_VERIFY fill:#15803D18,stroke:#22C55E,stroke-width:2px
 
-    classDef teal fill:#0F766E,stroke:#115E59,color:#FFFFFF
-    classDef indigo fill:#4F46E5,stroke:#3730A3,color:#FFFFFF
-    classDef emerald fill:#15803D,stroke:#166534,color:#FFFFFF
-    classDef crimson fill:#B91C1C,stroke:#7F1D1D,color:#FFFFFF
-    classDef amber fill:#B45309,stroke:#92400E,color:#FFFFFF
+    linkStyle default stroke:#64748B,stroke-width:1.8px
 
-    class SRC,CHK,EMB,UPS teal
-    class Q,LEX,DEN,RRF,RER indigo
+    classDef teal fill:#0F766E,stroke:#2DD4BF,stroke-width:1.5px,color:#FFFFFF
+    classDef cobalt fill:#1D4ED8,stroke:#93C5FD,stroke-width:1.5px,color:#FFFFFF
+    classDef indigo fill:#4F46E5,stroke:#A5B4FC,stroke-width:1.5px,color:#FFFFFF
+    classDef emerald fill:#15803D,stroke:#86EFAC,stroke-width:1.5px,color:#FFFFFF
+    classDef crimson fill:#B91C1C,stroke:#FCA5A5,stroke-width:1.5px,color:#FFFFFF
+    classDef amber fill:#B45309,stroke:#FCD34D,stroke-width:1.5px,color:#FFFFFF
+
+    class SRC,CHK,EMB teal
+    class CORPUS cobalt
+    class LEX,DEN,RRF indigo
     class PASS emerald
     class VER,FALL crimson
     class EMPTY,ABST,SYN amber
@@ -547,7 +550,6 @@ flowchart TD
 Managed by two Alembic revisions ([`0001_initial_schema.py`](backend/app/db/migrations/versions/0001_initial_schema.py) and [`0002_ddi_pairs_c_collation_order.py`](backend/app/db/migrations/versions/0002_ddi_pairs_c_collation_order.py)) with required extensions `pgcrypto`, `vector`, and `pg_trgm` enabled via [`01_extensions.sql`](infra/postgres/init/01_extensions.sql).
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#CCFBF1', 'primaryTextColor': '#0F172A', 'primaryBorderColor': '#0F766E', 'lineColor': '#0F766E', 'secondaryColor': '#EFF6FF', 'tertiaryColor': '#F8FAFC', 'attributeBackgroundColorOdd': '#F8FAFC', 'attributeBackgroundColorEven': '#FFFFFF' }}}%%
 erDiagram
     users {
         uuid id PK
@@ -660,9 +662,9 @@ erDiagram
 
 Shared semantically between Python (`drug_normalizer.py`) and Kotlin (`OnDeviceSaltChipExtractor`):
 - **21 Indian/British-to-canonical synonyms:** e.g., `amoxycillin` → `amoxicillin`, `paracetamol` → `acetaminophen`, `potassium clavulanate` → `clavulanic acid`, `salbutamol` → `albuterol`, `frusemide` → `furosemide`, `lignocaine` → `lidocaine`, `acetylsalicylic acid` → `aspirin`, `cholecalciferol` → `vitamin d3`, `glibenclamide` → `glyburide`, `adrenaline` → `epinephrine`.
-- **23 preserved inorganic compounds** (counterion not stripped): e.g., `calcium carbonate`, `potassium chloride`, `ferrous sulfate`, `lithium carbonate`, `sodium bicarbonate`, `magnesium hydroxide`, `zinc sulfate`.
-- **57 stripped counterion, hydrate & pharmacopoeia suffixes:** e.g., `hydrochloride`, `hcl`, `sodium`, `potassium`, `besylate`, `mesylate`, `trihydrate`, `ip`, `bp`, `usp`, plus release modifiers (`sr`, `xr`, `er`, `pr`, `dr`, `cr`, `ec`, `mr`, `dt`).
-- **Dosage-form extraction & strength conversion:** Parses `mg`, `mcg`/`ug`/`µg` (→ `mg / 1000`), `g`/`gm` (→ `mg * 1000`), `ml`, `iu`, `%`, and 27 dosage-form keywords (`tablet`, `capsule`, `syrup`, `suspension`, `injection`, `inhaler`/`rotacap`/`respule`, `drops`, `ointment`, `cream`, `gel`, `spray`, `powder`/`sachet`).
+- **24 preserved inorganic compounds** (counterion not stripped): e.g., `calcium carbonate`, `potassium chloride`, `ferrous sulfate`, `lithium carbonate`, `sodium bicarbonate`, `magnesium hydroxide`, `zinc sulfate`.
+- **55 stripped counterion, hydrate & pharmacopoeia suffixes:** e.g., `hydrochloride`, `hcl`, `sodium`, `potassium`, `besylate`, `mesylate`, `trihydrate`, `ip`, `bp`, `usp`, plus release modifiers (`sr`, `xr`, `er`, `pr`, `dr`, `cr`, `ec`, `mr`, `dt`).
+- **Dosage-form extraction & strength conversion:** Parses `mg`, `mcg`/`ug`/`µg` (→ `mg / 1000`), `g`/`gm` (→ `mg * 1000`), `ml`, `iu`, `%`, and 26 dosage-form keywords (`tablet`, `capsule`, `syrup`, `suspension`, `injection`, `inhaler`/`rotacap`/`respule`, `drops`, `ointment`, `cream`, `gel`, `spray`, `powder`/`sachet`).
 
 ---
 
@@ -721,15 +723,17 @@ flowchart TB
     PUSH --> J3A
     PUSH --> J4A
 
-    style J1 fill:#EFF6FF,stroke:#1D4ED8,stroke-width:2px,color:#0F172A
-    style J2 fill:#FEF2F2,stroke:#B91C1C,stroke-width:2px,color:#0F172A
-    style J3 fill:#F0FDF4,stroke:#15803D,stroke-width:2px,color:#0F172A
-    style J4 fill:#F8FAFC,stroke:#475569,stroke-width:2px,color:#0F172A
+    style J1 fill:#1D4ED818,stroke:#3B82F6,stroke-width:2px
+    style J2 fill:#B91C1C18,stroke:#EF4444,stroke-width:2px
+    style J3 fill:#15803D18,stroke:#22C55E,stroke-width:2px
+    style J4 fill:#64748B18,stroke:#64748B,stroke-width:2px
 
-    classDef slate fill:#0F172A,stroke:#334155,color:#FFFFFF
-    classDef cobalt fill:#1D4ED8,stroke:#1E40AF,color:#FFFFFF
-    classDef crimson fill:#B91C1C,stroke:#7F1D1D,color:#FFFFFF
-    classDef emerald fill:#15803D,stroke:#166534,color:#FFFFFF
+    linkStyle default stroke:#64748B,stroke-width:1.8px
+
+    classDef slate fill:#1E293B,stroke:#94A3B8,stroke-width:1.5px,color:#FFFFFF
+    classDef cobalt fill:#1D4ED8,stroke:#93C5FD,stroke-width:1.5px,color:#FFFFFF
+    classDef crimson fill:#B91C1C,stroke:#FCA5A5,stroke-width:1.5px,color:#FFFFFF
+    classDef emerald fill:#15803D,stroke:#86EFAC,stroke-width:1.5px,color:#FFFFFF
 
     class PUSH,J4A slate
     class J1A,J1B,J1C cobalt
