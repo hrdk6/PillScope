@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 20.0
 
     openfda_base_url: str = "https://api.fda.gov/drug/label.json"
+    openfda_enforcement_url: str = "https://api.fda.gov/drug/enforcement.json"
     openfda_api_key: str = ""
     dailymed_base_url: str = "https://dailymed.nlm.nih.gov/dailymed/services/v2"
 

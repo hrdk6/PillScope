@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import auth, cabinet, drugs, health, internal, scans
+from backend.app.api import auth, cabinet, drugs, health, internal, profiles, scans
 from backend.app.core.config import Settings, get_settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.telemetry import OpenTelemetryMiddleware
@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(profiles.router)
     app.include_router(drugs.router)
     app.include_router(cabinet.router)
     app.include_router(scans.router)

@@ -14,6 +14,10 @@ from backend.app.services.monograph_ingestion import (
     parse_openfda_label_record,
     upsert_monograph_chunks,
 )
+from backend.app.services.recall_watchdog import (
+    ingest_recalls_from_file,
+    sync_openfda_recalls,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -94,4 +98,67 @@ async def ingest_monographs_from_file_job(
     return {
         "labels_processed": labels_processed,
         "chunks_upserted": total_chunks,
+    }
+
+
+async def sync_fda_recalls_job(
+    ctx: dict[str, Any],
+    max_pages: int = 5,
+    page_size: int = 100,
+    status_filter: str = "Ongoing",
+) -> dict[str, Any]:
+    session_factory: async_sessionmaker[AsyncSession] = ctx["session_factory"]
+    settings: Settings = ctx.get("settings") or get_settings()
+    http_client: httpx.AsyncClient | None = ctx.get("http_client")
+    sleep_fn = ctx.get("sleep_fn")
+
+    async with session_factory() as session:
+        if sleep_fn is not None:
+            result = await sync_openfda_recalls(
+                session=session,
+                settings=settings,
+                max_pages=max_pages,
+                page_size=page_size,
+                status_filter=status_filter,
+                http_client=http_client,
+                sleep_fn=sleep_fn,
+            )
+        else:
+            result = await sync_openfda_recalls(
+                session=session,
+                settings=settings,
+                max_pages=max_pages,
+                page_size=page_size,
+                status_filter=status_filter,
+                http_client=http_client,
+            )
+
+    return {
+        "pages_fetched": result.pages_fetched,
+        "records_read": result.records_read,
+        "records_upserted": result.records_upserted,
+        "active_class_1_or_2_upserted": result.active_class_1_or_2_upserted,
+        "rate_limited": result.rate_limited,
+        "warnings": result.warnings,
+    }
+
+
+async def ingest_fda_recalls_from_file_job(
+    ctx: dict[str, Any],
+    json_path_str: str,
+) -> dict[str, Any]:
+    session_factory: async_sessionmaker[AsyncSession] = ctx["session_factory"]
+    settings: Settings = ctx.get("settings") or get_settings()
+
+    async with session_factory() as session:
+        result = await ingest_recalls_from_file(
+            session=session,
+            json_path=Path(json_path_str),
+            enforcement_base_url=settings.openfda_enforcement_url,
+        )
+
+    return {
+        "records_read": result.records_read,
+        "records_upserted": result.records_upserted,
+        "active_class_1_or_2_upserted": result.active_class_1_or_2_upserted,
     }

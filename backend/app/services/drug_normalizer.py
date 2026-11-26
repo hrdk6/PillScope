@@ -114,8 +114,10 @@ PRESERVED_INORGANIC_COMPOUNDS: frozenset[str] = frozenset(
 
 COUNTERION_SUFFIXES: tuple[str, ...] = (
     "dihydrochloride",
+    "monohydrochloride",
     "hydrochloride",
     "hydrobromide",
+    "hyclate",
     "hcl",
     "sodium",
     "potassium",

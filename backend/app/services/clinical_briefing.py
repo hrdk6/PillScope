@@ -1,6 +1,6 @@
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -9,6 +9,7 @@ import structlog
 
 from backend.app.core.config import Settings, get_settings
 from backend.app.schemas.cabinet import DuplicateSaltAlert, RiskLevel
+from backend.app.schemas.profiles import AllergyAlert
 from backend.app.schemas.safety import (
     ClinicalSummary,
     DeterministicDdiAlert,
@@ -41,6 +42,7 @@ class BriefingContext:
     deterministic_alerts: list[DeterministicDdiAlert]
     interactions: list[InteractionItem]
     citations: list[MonographCitation]
+    allergy_alerts: list[AllergyAlert] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -65,6 +67,11 @@ class LlmBriefingGenerator(Protocol):
 def build_abstention_summary(context: BriefingContext) -> ClinicalSummary:
     if context.safety_banner_locked:
         reasons: list[str] = []
+        if context.allergy_alerts:
+            allergy_labels = ", ".join(
+                sorted({f"{a.canonical_salt} ({a.allergen})" for a in context.allergy_alerts})
+            )
+            reasons.append(f"documented allergy conflict ({allergy_labels})")
         if context.duplicate_salts:
             dup_names = ", ".join(sorted({d.canonical_salt for d in context.duplicate_salts}))
             reasons.append(f"duplicate active ingredient ({dup_names})")
@@ -140,6 +147,12 @@ def build_extractive_grounded_summary(context: BriefingContext) -> ClinicalSumma
 
     if context.safety_banner_locked:
         alert_parts: list[str] = []
+        if context.allergy_alerts:
+            allergies = ", ".join(
+                f"{a.canonical_salt} matches documented allergy {a.allergen}"
+                for a in context.allergy_alerts
+            )
+            alert_parts.append(f"Documented allergy conflict: {allergies}.")
         if context.duplicate_salts:
             dups = ", ".join(
                 f"{d.canonical_salt} (already in {d.existing_display_name})"
@@ -276,6 +289,7 @@ def _build_llm_prompt(context: BriefingContext) -> str:
         "overall_risk": context.overall_risk,
         "safety_banner_locked": context.safety_banner_locked,
         "duplicate_salts": [d.model_dump(mode="json") for d in context.duplicate_salts],
+        "allergy_alerts": [a.model_dump(mode="json") for a in context.allergy_alerts],
         "deterministic_alerts": [a.model_dump(mode="json") for a in context.deterministic_alerts],
         "interactions": [i.model_dump(mode="json") for i in context.interactions],
         "monograph_chunks": [

@@ -24,6 +24,7 @@ from backend.app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from backend.app.services.profiles import create_default_profile_for_user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -56,6 +57,8 @@ async def register(
         display_name=body.display_name.strip() if body.display_name else None,
     )
     session.add(user)
+    await session.flush()
+    await create_default_profile_for_user(session, user)
     await session.commit()
     await session.refresh(user)
 

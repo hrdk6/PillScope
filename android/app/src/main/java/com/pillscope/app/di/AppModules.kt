@@ -4,7 +4,11 @@ import android.content.Context
 import androidx.room.Room
 import com.pillscope.app.BuildConfig
 import com.pillscope.app.data.local.PillScopeDatabase
+import com.pillscope.app.data.local.dao.DoseScheduleDao
+import com.pillscope.app.data.local.dao.LifestyleTriggerDao
 import com.pillscope.app.data.local.dao.MedicationDao
+import com.pillscope.app.data.local.dao.ProfileDao
+import com.pillscope.app.data.local.dao.RecallAlertDao
 import com.pillscope.app.data.local.dao.ScanReportDao
 import com.pillscope.app.data.remote.AuthTokenProvider
 import com.pillscope.app.data.remote.BearerAuthInterceptor
@@ -104,13 +108,25 @@ object DatabaseModule {
             context,
             PillScopeDatabase::class.java,
             "pillscope_offline.db",
-        ).fallbackToDestructiveMigration().build()
+        ).addMigrations(PillScopeDatabase.MIGRATION_1_2).build()
+
+    @Provides
+    fun provideProfileDao(db: PillScopeDatabase): ProfileDao = db.profileDao()
 
     @Provides
     fun provideMedicationDao(db: PillScopeDatabase): MedicationDao = db.medicationDao()
 
     @Provides
     fun provideScanReportDao(db: PillScopeDatabase): ScanReportDao = db.scanReportDao()
+
+    @Provides
+    fun provideLifestyleTriggerDao(db: PillScopeDatabase): LifestyleTriggerDao = db.lifestyleTriggerDao()
+
+    @Provides
+    fun provideDoseScheduleDao(db: PillScopeDatabase): DoseScheduleDao = db.doseScheduleDao()
+
+    @Provides
+    fun provideRecallAlertDao(db: PillScopeDatabase): RecallAlertDao = db.recallAlertDao()
 }
 
 @Module

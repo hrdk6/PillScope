@@ -106,6 +106,11 @@ def compute_citation_span_support(
         source_blobs.append(
             f"duplicate active salt {dup.canonical_salt} {dup.existing_display_name}"
         )
+    for allergy in context.allergy_alerts:
+        source_blobs.append(
+            f"documented allergy conflict {allergy.canonical_salt} {allergy.allergen} "
+            f"{allergy.matched_class or ''} {allergy.reason}"
+        )
     source_blobs.append(context.submitted_query)
     source_blobs.extend(context.resolved_salts)
 

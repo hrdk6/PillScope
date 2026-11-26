@@ -1,19 +1,33 @@
 package com.pillscope.app.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -22,28 +36,70 @@ import com.pillscope.app.ui.analysis.AnalysisViewModel
 import com.pillscope.app.ui.analysis.ProgressiveAnalysisScreen
 import com.pillscope.app.ui.cabinet.CabinetScreen
 import com.pillscope.app.ui.cabinet.CabinetViewModel
+import com.pillscope.app.ui.profiles.ActiveProfilePill
+import com.pillscope.app.ui.profiles.ProfileSwitcherSheet
+import com.pillscope.app.ui.profiles.ProfileViewModel
 import com.pillscope.app.ui.scan.CameraScanScreen
 import com.pillscope.app.ui.scan.ScanViewModel
+import com.pillscope.app.ui.schedule.ScheduleScreen
+import com.pillscope.app.ui.schedule.ScheduleViewModel
+import com.pillscope.app.ui.theme.PillScopeColors
 
 private object Routes {
     const val SCAN = "scan"
     const val ANALYSIS = "analysis"
     const val CABINET = "cabinet"
+    const val SCHEDULE = "schedule"
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PillScopeApp() {
     val navController = rememberNavController()
+    val profileViewModel: ProfileViewModel = hiltViewModel()
     val scanViewModel: ScanViewModel = hiltViewModel()
     val analysisViewModel: AnalysisViewModel = hiltViewModel()
     val cabinetViewModel: CabinetViewModel = hiltViewModel()
+    val scheduleViewModel: ScheduleViewModel = hiltViewModel()
+
+    val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
+    val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
+    var showProfileSheet by remember { mutableStateOf(false) }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: Routes.SCAN
 
     Scaffold(
+        containerColor = PillScopeColors.SlateSurface,
+        topBar = {
+            if (currentRoute != Routes.SCAN) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = PillScopeColors.SlateSurface,
+                    ),
+                    title = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "PillScope",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = PillScopeColors.ClinicalTealDeep,
+                            )
+                            ActiveProfilePill(
+                                profile = activeProfile,
+                                onClick = { showProfileSheet = true },
+                                modifier = Modifier.padding(end = 12.dp),
+                            )
+                        }
+                    },
+                )
+            }
+        },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = PillScopeColors.CardSurface) {
                 NavigationBarItem(
                     selected = currentRoute == Routes.SCAN,
                     onClick = {
@@ -74,6 +130,16 @@ fun PillScopeApp() {
                     icon = { Icon(Icons.Default.Medication, contentDescription = "Cabinet") },
                     label = { Text("Cabinet") },
                 )
+                NavigationBarItem(
+                    selected = currentRoute == Routes.SCHEDULE,
+                    onClick = {
+                        navController.navigate(Routes.SCHEDULE) {
+                            launchSingleTop = true
+                        }
+                    },
+                    icon = { Icon(Icons.Default.CalendarMonth, contentDescription = "Schedule") },
+                    label = { Text("Schedule") },
+                )
             }
         },
     ) { innerPadding ->
@@ -85,6 +151,8 @@ fun PillScopeApp() {
             composable(Routes.SCAN) {
                 CameraScanScreen(
                     viewModel = scanViewModel,
+                    activeProfile = activeProfile,
+                    onOpenProfileSwitcher = { showProfileSheet = true },
                     onAnalyzeRequest = { req ->
                         analysisViewModel.startAnalysis(req)
                         navController.navigate(Routes.ANALYSIS) {
@@ -99,6 +167,28 @@ fun PillScopeApp() {
             composable(Routes.CABINET) {
                 CabinetScreen(viewModel = cabinetViewModel)
             }
+            composable(Routes.SCHEDULE) {
+                ScheduleScreen(viewModel = scheduleViewModel)
+            }
         }
+    }
+
+    if (showProfileSheet) {
+        ProfileSwitcherSheet(
+            profiles = profiles,
+            activeProfile = activeProfile,
+            onSelectProfile = { id ->
+                profileViewModel.selectProfile(id)
+                showProfileSheet = false
+            },
+            onCreateProfile = { name, relationship, allergies ->
+                profileViewModel.createProfile(name, relationship, allergies)
+            },
+            onSaveAllergies = { profileId, allergies ->
+                profileViewModel.saveAllergies(profileId, allergies)
+                showProfileSheet = false
+            },
+            onDismiss = { showProfileSheet = false },
+        )
     }
 }

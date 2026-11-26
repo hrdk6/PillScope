@@ -5,6 +5,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.app.schemas.drugs import SaltComponent
+from backend.app.schemas.lifestyle import LifestyleTrigger
+from backend.app.schemas.profiles import AllergyAlert
+from backend.app.schemas.recalls import MedicationRecallFlag
 
 RiskLevel = Literal["MAJOR", "MODERATE", "MINOR", "NONE"]
 
@@ -17,6 +20,7 @@ class DuplicateSaltAlert(BaseModel):
 
 
 class MedicationCreateRequest(BaseModel):
+    profile_id: UUID | None = None
     brand_mapping_id: UUID | None = None
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     generic_salts: list[SaltComponent] | None = None
@@ -47,6 +51,7 @@ class MedicationResponse(BaseModel):
 
     id: UUID
     user_id: UUID
+    profile_id: UUID
     brand_mapping_id: UUID | None
     display_name: str
     generic_salts: list[SaltComponent]
@@ -57,6 +62,13 @@ class MedicationResponse(BaseModel):
     ended_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    lifestyle_triggers: list[LifestyleTrigger] = Field(default_factory=list)
+    has_active_recall: bool = False
+    active_recalls: list[MedicationRecallFlag] = Field(default_factory=list)
+
+
+class MedicationDetailResponse(MedicationResponse):
+    pass
 
 
 class MedicationCreateResponse(BaseModel):
@@ -64,9 +76,11 @@ class MedicationCreateResponse(BaseModel):
     overall_risk: RiskLevel
     safety_banner_locked: bool
     duplicate_salts: list[DuplicateSaltAlert]
+    allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
 
 
 class DuplicateCheckRequest(BaseModel):
+    profile_id: UUID | None = None
     brand_name: str | None = Field(default=None, min_length=1, max_length=255)
     confirmed_salts: list[str] | None = None
     raw_ocr_text: str | None = Field(default=None, max_length=2000)
@@ -79,7 +93,9 @@ class DuplicateCheckRequest(BaseModel):
 
 
 class DuplicateCheckResponse(BaseModel):
+    profile_id: UUID | None = None
     resolved_salts: list[str]
     overall_risk: RiskLevel
     safety_banner_locked: bool
     duplicate_salts: list[DuplicateSaltAlert]
+    allergy_alerts: list[AllergyAlert] = Field(default_factory=list)

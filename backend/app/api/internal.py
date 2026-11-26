@@ -5,6 +5,7 @@ from arq.connections import RedisSettings, create_pool
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from backend.app.core.config import Settings, get_settings
+from backend.app.schemas.recalls import RecallSyncJobRequest, RecallSyncJobResponse
 from backend.app.schemas.safety import MonographIngestJobRequest, MonographIngestJobResponse
 
 router = APIRouter(prefix="/api/v1/internal/jobs", tags=["internal"])
@@ -49,5 +50,33 @@ async def enqueue_monograph_ingestion(
             job_id=job.job_id,
             drug_names=body.drug_names,
         )
+    finally:
+        await pool.aclose()
+
+
+@router.post(
+    "/sync-recalls",
+    response_model=RecallSyncJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(_verify_admin_key)],
+)
+async def enqueue_fda_recall_sync(
+    body: RecallSyncJobRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RecallSyncJobResponse:
+    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    try:
+        job = await pool.enqueue_job(
+            "sync_fda_recalls_job",
+            body.max_pages,
+            body.page_size,
+            body.status_filter,
+        )
+        if job is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to enqueue ARQ FDA recall sync job.",
+            )
+        return RecallSyncJobResponse(job_id=job.job_id)
     finally:
         await pool.aclose()

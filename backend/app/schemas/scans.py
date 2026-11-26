@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ScanLogResponse(BaseModel):
@@ -10,6 +10,7 @@ class ScanLogResponse(BaseModel):
 
     id: UUID
     user_id: UUID
+    profile_id: UUID
     input_mode: str
     raw_ocr_text: str | None
     edge_quality_metrics: dict[str, Any] | None
@@ -20,6 +21,8 @@ class ScanLogResponse(BaseModel):
     safety_banner_locked: bool
     deterministic_alerts: list[dict[str, Any]]
     duplicate_salts: list[dict[str, Any]]
+    allergy_alerts: list[dict[str, Any]] = Field(default_factory=list)
+    lifestyle_triggers: list[dict[str, Any]] = Field(default_factory=list)
     interactions: list[dict[str, Any]]
     clinical_summary: dict[str, Any] | None
     citations: list[dict[str, Any]]

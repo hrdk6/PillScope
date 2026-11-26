@@ -161,6 +161,7 @@ def merge_deterministic_and_ml_interactions(
     deterministic_alerts: Sequence[DeterministicRuleAlert],
     ml_predictions: Sequence[DdiPrediction],
     has_duplicate_salts: bool = False,
+    has_allergy_alerts: bool = False,
 ) -> SafetyMergeResult:
     det_by_key: dict[tuple[str, str], DeterministicRuleAlert] = {}
     for alert in deterministic_alerts:
@@ -176,8 +177,8 @@ def merge_deterministic_and_ml_interactions(
     all_keys = sorted(set(det_by_key.keys()) | set(ml_by_key.keys()))
     merged: list[MergedInteraction] = []
 
-    banner_locked = has_duplicate_salts
-    highest_rank = SEVERITY_RANK["MAJOR"] if has_duplicate_salts else SEVERITY_RANK["NONE"]
+    banner_locked = has_duplicate_salts or has_allergy_alerts
+    highest_rank = SEVERITY_RANK["MAJOR"] if banner_locked else SEVERITY_RANK["NONE"]
 
     for key in all_keys:
         det = det_by_key.get(key)

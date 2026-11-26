@@ -1,14 +1,19 @@
 package com.pillscope.app.data.repository
 
+import com.pillscope.app.data.local.dao.LifestyleTriggerDao
 import com.pillscope.app.data.local.dao.ScanReportDao
+import com.pillscope.app.data.local.entity.CachedLifestyleTriggerEntity
 import com.pillscope.app.data.local.entity.CachedScanReportEntity
+import com.pillscope.app.data.local.entity.DefaultProfileIds
 import com.pillscope.app.data.remote.PillScopeApi
+import com.pillscope.app.data.remote.dto.AllergyAlertDto
 import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.ClinicalSummaryDto
 import com.pillscope.app.data.remote.dto.DeterministicDdiAlertDto
 import com.pillscope.app.data.remote.dto.DrugResolveRequestDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.InteractionItemDto
+import com.pillscope.app.data.remote.dto.LifestyleTriggerDto
 import com.pillscope.app.data.remote.dto.MonographCitationDto
 import com.pillscope.app.data.remote.dto.SaltComponentDto
 import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
@@ -27,6 +32,7 @@ import javax.inject.Singleton
 
 data class CachedScanSummary(
     val scanId: String,
+    val profileId: String,
     val submittedQuery: String,
     val resolvedSalts: List<String>,
     val overallRisk: RiskLevel,
@@ -35,13 +41,47 @@ data class CachedScanSummary(
     val createdAtEpochMs: Long,
 )
 
+data class CachedScanEvidence(
+    val interactions: List<InteractionItemDto>,
+    val citations: List<MonographCitationDto>,
+)
+
 @Singleton
-class ScanRepository @Inject constructor(
-    private val api: PillScopeApi,
-    private val sseClient: ScanSseClient,
-    private val scanReportDao: ScanReportDao,
-    private val json: Json,
-) {
+class ScanRepository {
+    private val api: PillScopeApi
+    private val sseClient: ScanSseClient
+    private val scanReportDao: ScanReportDao
+    private val json: Json
+    private val lifestyleTriggerDao: LifestyleTriggerDao?
+
+    @Inject
+    constructor(
+        api: PillScopeApi,
+        sseClient: ScanSseClient,
+        scanReportDao: ScanReportDao,
+        json: Json,
+        lifestyleTriggerDao: LifestyleTriggerDao,
+    ) {
+        this.api = api
+        this.sseClient = sseClient
+        this.scanReportDao = scanReportDao
+        this.json = json
+        this.lifestyleTriggerDao = lifestyleTriggerDao
+    }
+
+    constructor(
+        api: PillScopeApi,
+        sseClient: ScanSseClient,
+        scanReportDao: ScanReportDao,
+        json: Json,
+    ) {
+        this.api = api
+        this.sseClient = sseClient
+        this.scanReportDao = scanReportDao
+        this.json = json
+        this.lifestyleTriggerDao = null
+    }
+
     suspend fun resolveDrugCandidates(
         query: String,
         rawOcrText: String? = null,
@@ -84,6 +124,8 @@ class ScanRepository @Inject constructor(
 
     fun analyzeMedicineStream(request: ScanAnalyzeRequestDto): Flow<ScanAnalysisState> {
         val initial = ScanAnalysisState(
+            profileId = request.profileId,
+            persisted = request.persist,
             submittedQuery = request.submittedQuery,
             resolvedSalts = request.confirmedSalts.orEmpty(),
             stage = AnalysisStage.CONNECTING,
@@ -91,7 +133,10 @@ class ScanRepository @Inject constructor(
         return sseClient.streamAnalysis(request)
             .onEach { event ->
                 if (event is ScanSseEvent.Complete) {
-                    persistCompletedScan(event.payload)
+                    cacheTriggersFromComplete(event.payload)
+                    if (event.payload.persisted) {
+                        persistCompletedScan(event.payload)
+                    }
                 }
             }
             .runningFold(initial) { current, event ->
@@ -104,6 +149,7 @@ class ScanRepository @Inject constructor(
             rows.map { row ->
                 CachedScanSummary(
                     scanId = row.scanId,
+                    profileId = row.profileId,
                     submittedQuery = row.submittedQuery,
                     resolvedSalts = decodeList(row.resolvedSaltsJson),
                     overallRisk = RiskLevel.fromApi(row.overallRisk),
@@ -114,16 +160,59 @@ class ScanRepository @Inject constructor(
             }
         }
 
+    fun observeCachedEvidenceForProfile(profileId: String, limit: Int = 30): Flow<CachedScanEvidence> =
+        scanReportDao.observeRecentReportsForProfile(profileId, limit).map { rows ->
+            val interactions = rows.flatMap { decodeList<InteractionItemDto>(it.interactionsJson) }
+            val citations = rows.flatMap { decodeList<MonographCitationDto>(it.citationsJson) }
+            CachedScanEvidence(interactions = interactions, citations = citations)
+        }
+
+    suspend fun syncRecentScansForProfile(profileId: String) {
+        val serverProfileId = profileId.takeIf {
+            it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
+        }
+        val remote = runCatching { api.listScans(profileId = serverProfileId, limit = 25) }.getOrNull()
+            ?: return
+        val now = System.currentTimeMillis()
+        remote.items.forEachIndexed { idx, log ->
+            val summaryJson = log.clinicalSummary?.let { json.encodeToString(it) } ?: "{}"
+            val entity = CachedScanReportEntity(
+                scanId = log.id,
+                profileId = log.profileId.ifBlank { profileId },
+                persisted = true,
+                submittedQuery = log.submittedQuery,
+                resolvedSaltsJson = json.encodeToString(log.resolvedSalts.map { it.canonicalSalt }),
+                overallRisk = log.overallRisk,
+                safetyBannerLocked = log.safetyBannerLocked,
+                duplicateSaltsJson = json.encodeToString(log.duplicateSalts),
+                allergyAlertsJson = json.encodeToString(log.allergyAlerts),
+                lifestyleTriggersJson = json.encodeToString(log.lifestyleTriggers),
+                deterministicAlertsJson = json.encodeToString(log.deterministicAlerts),
+                interactionsJson = json.encodeToString(log.interactions),
+                clinicalSummaryJson = summaryJson,
+                citationsJson = json.encodeToString(log.citations),
+                citationVerified = log.citationVerified,
+                latencyMs = log.latencyMs ?: 0,
+                createdAtEpochMs = now - (idx * 1000L),
+            )
+            scanReportDao.upsert(entity)
+        }
+    }
+
     suspend fun loadCachedReport(scanId: String): ScanAnalysisState? {
         val entity = scanReportDao.getByScanId(scanId) ?: return null
         return ScanAnalysisState(
             scanId = entity.scanId,
+            profileId = entity.profileId,
+            persisted = entity.persisted,
             submittedQuery = entity.submittedQuery,
             resolvedSalts = decodeList(entity.resolvedSaltsJson),
             stage = AnalysisStage.COMPLETE,
             overallRisk = RiskLevel.fromApi(entity.overallRisk),
             safetyBannerLocked = entity.safetyBannerLocked,
             duplicateSalts = decodeList<DuplicateSaltAlertDto>(entity.duplicateSaltsJson),
+            allergyAlerts = decodeList<AllergyAlertDto>(entity.allergyAlertsJson),
+            lifestyleTriggers = decodeList<LifestyleTriggerDto>(entity.lifestyleTriggersJson),
             deterministicAlerts = decodeList<DeterministicDdiAlertDto>(entity.deterministicAlertsJson),
             interactions = decodeList<InteractionItemDto>(entity.interactionsJson),
             clinicalSummary = runCatching {
@@ -136,14 +225,38 @@ class ScanRepository @Inject constructor(
         )
     }
 
+    private suspend fun cacheTriggersFromComplete(complete: ScanCompleteEventDto) {
+        val dao = lifestyleTriggerDao ?: return
+        if (complete.lifestyleTriggers.isEmpty() || complete.resolvedSalts.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val entities = complete.resolvedSalts.flatMap { salt ->
+            complete.lifestyleTriggers.map { trigger ->
+                CachedLifestyleTriggerEntity(
+                    id = "$salt:${trigger.type}",
+                    canonicalSalt = salt,
+                    triggerType = trigger.type,
+                    severity = trigger.severity,
+                    shortNote = trigger.shortNote,
+                    sourceSection = trigger.sourceSection,
+                    updatedAtEpochMs = now,
+                )
+            }
+        }
+        dao.upsertAll(entities)
+    }
+
     private suspend fun persistCompletedScan(complete: ScanCompleteEventDto) {
         val entity = CachedScanReportEntity(
             scanId = complete.scanId,
+            profileId = complete.profileId ?: DefaultProfileIds.LOCAL_DEFAULT,
+            persisted = complete.persisted,
             submittedQuery = complete.submittedQuery,
             resolvedSaltsJson = json.encodeToString(complete.resolvedSalts),
             overallRisk = complete.overallRisk,
             safetyBannerLocked = complete.safetyBannerLocked,
             duplicateSaltsJson = json.encodeToString(complete.duplicateSalts),
+            allergyAlertsJson = json.encodeToString(complete.allergyAlerts),
+            lifestyleTriggersJson = json.encodeToString(complete.lifestyleTriggers),
             deterministicAlertsJson = json.encodeToString(complete.deterministicAlerts),
             interactionsJson = json.encodeToString(complete.interactions),
             clinicalSummaryJson = json.encodeToString(complete.clinicalSummary),

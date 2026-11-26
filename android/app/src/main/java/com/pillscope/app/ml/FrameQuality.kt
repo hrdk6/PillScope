@@ -21,6 +21,11 @@ data class NormalizedCropRect(
     }
 }
 
+data class OcrTextBlockBox(
+    val text: String,
+    val bounds: NormalizedCropRect,
+)
+
 data class FrameQualityResult(
     val blurScore: Float,
     val glareRatio: Float,
@@ -52,4 +57,5 @@ data class CameraPipelineResult(
     val rawOcrText: String,
     val localSaltChips: List<LocalSaltChip>,
     val primaryBrandGuess: String,
+    val ocrTextBlocks: List<OcrTextBlockBox> = emptyList(),
 )

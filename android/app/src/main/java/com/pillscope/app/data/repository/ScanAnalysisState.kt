@@ -1,10 +1,13 @@
 package com.pillscope.app.data.repository
 
+import com.pillscope.app.data.remote.dto.AllergyAlertDto
 import com.pillscope.app.data.remote.dto.ClinicalSummaryDto
 import com.pillscope.app.data.remote.dto.DeterministicDdiAlertDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.InteractionItemDto
+import com.pillscope.app.data.remote.dto.LifestyleTriggerDto
 import com.pillscope.app.data.remote.dto.MonographCitationDto
+import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.sse.ScanSseEvent
 
 enum class RiskLevel(val rank: Int) {
@@ -39,13 +42,18 @@ enum class AnalysisStage {
 
 data class ScanAnalysisState(
     val scanId: String? = null,
+    val profileId: String? = null,
+    val persisted: Boolean = true,
     val submittedQuery: String = "",
     val resolvedSalts: List<String> = emptyList(),
     val stage: AnalysisStage = AnalysisStage.IDLE,
     val overallRisk: RiskLevel = RiskLevel.NONE,
     val safetyBannerLocked: Boolean = false,
     val duplicateSalts: List<DuplicateSaltAlertDto> = emptyList(),
+    val allergyAlerts: List<AllergyAlertDto> = emptyList(),
     val deterministicAlerts: List<DeterministicDdiAlertDto> = emptyList(),
+    val lifestyleTriggers: List<LifestyleTriggerDto> = emptyList(),
+    val activeRecalls: List<ProfileRecallAlertItemDto> = emptyList(),
     val interactions: List<InteractionItemDto> = emptyList(),
     val mlScoredPairCount: Int = 0,
     val citations: List<MonographCitationDto> = emptyList(),
@@ -64,6 +72,7 @@ object ScanAnalysisReducer {
                 val p = event.payload
                 val hasHardTrigger = p.safetyBannerLocked ||
                     p.duplicateSalts.isNotEmpty() ||
+                    p.allergyAlerts.isNotEmpty() ||
                     p.deterministicAlerts.any { RiskLevel.fromApi(it.severity) == RiskLevel.MAJOR }
                 val nextLocked = current.safetyBannerLocked || hasHardTrigger
                 val baseRisk = RiskLevel.max(current.overallRisk, RiskLevel.fromApi(p.overallRisk))
@@ -71,12 +80,15 @@ object ScanAnalysisReducer {
 
                 current.copy(
                     scanId = p.scanId,
+                    profileId = p.profileId ?: current.profileId,
+                    persisted = p.persisted,
                     submittedQuery = p.submittedQuery,
                     resolvedSalts = p.resolvedSalts,
                     stage = AnalysisStage.DETERMINISTIC_READY,
                     overallRisk = nextRisk,
                     safetyBannerLocked = nextLocked,
                     duplicateSalts = p.duplicateSalts,
+                    allergyAlerts = p.allergyAlerts,
                     deterministicAlerts = p.deterministicAlerts,
                     errorMessage = null,
                 )
@@ -103,6 +115,9 @@ object ScanAnalysisReducer {
                     scanId = event.payload.scanId,
                     stage = AnalysisStage.CITATIONS_READY,
                     citations = event.payload.citations,
+                    lifestyleTriggers = event.payload.lifestyleTriggers.ifEmpty {
+                        current.lifestyleTriggers
+                    },
                 )
             }
 
@@ -130,19 +145,27 @@ object ScanAnalysisReducer {
 
             is ScanSseEvent.Complete -> {
                 val p = event.payload
-                val nextLocked = current.safetyBannerLocked || p.safetyBannerLocked
+                val hasHardTrigger = p.safetyBannerLocked ||
+                    p.duplicateSalts.isNotEmpty() ||
+                    p.allergyAlerts.isNotEmpty() ||
+                    p.deterministicAlerts.any { RiskLevel.fromApi(it.severity) == RiskLevel.MAJOR }
+                val nextLocked = current.safetyBannerLocked || hasHardTrigger
                 val mergedRisk = RiskLevel.max(current.overallRisk, RiskLevel.fromApi(p.overallRisk))
                 val nextRisk = if (nextLocked) RiskLevel.MAJOR else mergedRisk
 
                 current.copy(
                     scanId = p.scanId,
+                    profileId = p.profileId ?: current.profileId,
+                    persisted = p.persisted,
                     submittedQuery = p.submittedQuery,
                     resolvedSalts = p.resolvedSalts.ifEmpty { current.resolvedSalts },
                     stage = AnalysisStage.COMPLETE,
                     overallRisk = nextRisk,
                     safetyBannerLocked = nextLocked,
                     duplicateSalts = p.duplicateSalts.ifEmpty { current.duplicateSalts },
+                    allergyAlerts = p.allergyAlerts.ifEmpty { current.allergyAlerts },
                     deterministicAlerts = p.deterministicAlerts.ifEmpty { current.deterministicAlerts },
+                    lifestyleTriggers = p.lifestyleTriggers.ifEmpty { current.lifestyleTriggers },
                     interactions = p.interactions,
                     clinicalSummary = p.clinicalSummary,
                     citations = p.citations,

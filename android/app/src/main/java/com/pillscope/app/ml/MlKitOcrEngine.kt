@@ -176,15 +176,48 @@ object OnDeviceSaltChipExtractor {
     }
 }
 
+data class OcrRecognitionResult(
+    val rawText: String,
+    val blocks: List<OcrTextBlockBox>,
+)
+
 class MlKitOcrEngine : Closeable {
     private val recognizer: TextRecognizer = TextRecognition.getClient(
         TextRecognizerOptions.DEFAULT_OPTIONS,
     )
 
-    suspend fun recognizeText(bitmap: Bitmap, rotationDegrees: Int = 0): String {
+    suspend fun recognizeText(bitmap: Bitmap, rotationDegrees: Int = 0): String =
+        recognizeTextWithBlocks(bitmap, rotationDegrees).rawText
+
+    suspend fun recognizeTextWithBlocks(
+        bitmap: Bitmap,
+        rotationDegrees: Int = 0,
+        parentCropBox: NormalizedCropRect = NormalizedCropRect(0f, 0f, 1f, 1f),
+    ): OcrRecognitionResult {
         val image = InputImage.fromBitmap(bitmap, rotationDegrees)
         val result = recognizer.process(image).await()
-        return result.text.trim()
+        val imgW = bitmap.width.coerceAtLeast(1).toFloat()
+        val imgH = bitmap.height.coerceAtLeast(1).toFloat()
+        val cropW = (parentCropBox.right - parentCropBox.left).coerceAtLeast(0.05f)
+        val cropH = (parentCropBox.bottom - parentCropBox.top).coerceAtLeast(0.05f)
+
+        val blocks = result.textBlocks.mapNotNull { block ->
+            val rect = block.boundingBox ?: return@mapNotNull null
+            val text = block.text.trim()
+            if (text.isEmpty()) return@mapNotNull null
+            val normLeft = (parentCropBox.left + (rect.left / imgW) * cropW).coerceIn(0f, 1f)
+            val normTop = (parentCropBox.top + (rect.top / imgH) * cropH).coerceIn(0f, 1f)
+            val normRight = (parentCropBox.left + (rect.right / imgW) * cropW).coerceIn(normLeft, 1f)
+            val normBottom = (parentCropBox.top + (rect.bottom / imgH) * cropH).coerceIn(normTop, 1f)
+            OcrTextBlockBox(
+                text = text,
+                bounds = NormalizedCropRect(normLeft, normTop, normRight, normBottom),
+            )
+        }
+        return OcrRecognitionResult(
+            rawText = result.text.trim(),
+            blocks = blocks,
+        )
     }
 
     override fun close() {

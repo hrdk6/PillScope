@@ -1,4 +1,5 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select, tuple_
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.db.models import DdiPair, Medication
 from backend.app.schemas.cabinet import DuplicateCheckResponse, DuplicateSaltAlert, RiskLevel
 from backend.app.schemas.safety import DeterministicDdiAlert
+from backend.app.services.allergy_checker import detect_allergy_conflicts
 from backend.app.services.drug_normalizer import canonical_salt_keys
 
 _RISK_ORDER: dict[RiskLevel, int] = {"NONE": 0, "MINOR": 1, "MODERATE": 2, "MAJOR": 3}
@@ -27,6 +29,7 @@ async def detect_duplicate_salts(
     user_id: UUID,
     candidate_salts: Iterable[str],
     exclude_medication_id: UUID | None = None,
+    profile_id: UUID | None = None,
 ) -> list[DuplicateSaltAlert]:
     normalized_keys = canonical_salt_keys(candidate_salts)
     if not normalized_keys:
@@ -37,6 +40,8 @@ async def detect_duplicate_salts(
         Medication.is_active.is_(True),
         Medication.canonical_salt_keys.overlap(normalized_keys),
     )
+    if profile_id is not None:
+        stmt = stmt.where(Medication.profile_id == profile_id)
     if exclude_medication_id is not None:
         stmt = stmt.where(Medication.id != exclude_medication_id)
 
@@ -113,6 +118,8 @@ async def evaluate_duplicate_safety(
     user_id: UUID,
     candidate_salts: Iterable[str],
     exclude_medication_id: UUID | None = None,
+    profile_id: UUID | None = None,
+    allergies_json: Sequence[Any] | None = None,
 ) -> DuplicateCheckResponse:
     resolved_keys = canonical_salt_keys(candidate_salts)
     duplicates = await detect_duplicate_salts(
@@ -120,12 +127,19 @@ async def evaluate_duplicate_safety(
         user_id=user_id,
         candidate_salts=resolved_keys,
         exclude_medication_id=exclude_medication_id,
+        profile_id=profile_id,
     )
-    locked = len(duplicates) > 0
+    allergy_alerts = detect_allergy_conflicts(
+        candidate_salts=resolved_keys,
+        allergies_json=allergies_json,
+    )
+    locked = len(duplicates) > 0 or len(allergy_alerts) > 0
     overall_risk: RiskLevel = "MAJOR" if locked else "NONE"
     return DuplicateCheckResponse(
+        profile_id=profile_id,
         resolved_salts=resolved_keys,
         overall_risk=overall_risk,
         safety_banner_locked=locked,
         duplicate_salts=duplicates,
+        allergy_alerts=allergy_alerts,
     )

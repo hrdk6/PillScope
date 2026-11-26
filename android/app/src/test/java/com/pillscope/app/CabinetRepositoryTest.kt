@@ -35,10 +35,28 @@ class InMemoryMedicationDao : MedicationDao {
                 .sortedByDescending { it.updatedAtEpochMs }
         }
 
+    override fun observeActiveMedicationsForProfile(profileId: String): Flow<List<MedicationEntity>> =
+        store.map { map ->
+            map.values
+                .filter {
+                    it.profileId == profileId &&
+                        it.isActive &&
+                        it.syncStatus != SyncStatus.PENDING_DELETE
+                }
+                .sortedByDescending { it.updatedAtEpochMs }
+        }
+
     override fun observeAllVisibleMedications(): Flow<List<MedicationEntity>> =
         store.map { map ->
             map.values
                 .filter { it.syncStatus != SyncStatus.PENDING_DELETE }
+                .sortedWith(compareByDescending<MedicationEntity> { it.isActive }.thenByDescending { it.updatedAtEpochMs })
+        }
+
+    override fun observeVisibleMedicationsForProfile(profileId: String): Flow<List<MedicationEntity>> =
+        store.map { map ->
+            map.values
+                .filter { it.profileId == profileId && it.syncStatus != SyncStatus.PENDING_DELETE }
                 .sortedWith(compareByDescending<MedicationEntity> { it.isActive }.thenByDescending { it.updatedAtEpochMs })
         }
 
@@ -49,6 +67,13 @@ class InMemoryMedicationDao : MedicationDao {
 
     override suspend fun getActiveSnapshot(): List<MedicationEntity> =
         store.value.values.filter { it.isActive && it.syncStatus != SyncStatus.PENDING_DELETE }
+
+    override suspend fun getActiveSnapshotForProfile(profileId: String): List<MedicationEntity> =
+        store.value.values.filter {
+            it.profileId == profileId &&
+                it.isActive &&
+                it.syncStatus != SyncStatus.PENDING_DELETE
+        }
 
     override suspend fun upsert(entity: MedicationEntity) {
         store.value = store.value + (entity.id to entity)
@@ -66,6 +91,12 @@ class InMemoryMedicationDao : MedicationDao {
 
     override suspend fun clearSynced() {
         store.value = store.value.filterValues { it.syncStatus != SyncStatus.SYNCED }
+    }
+
+    override suspend fun clearSyncedForProfile(profileId: String) {
+        store.value = store.value.filterValues {
+            !(it.profileId == profileId && it.syncStatus == SyncStatus.SYNCED)
+        }
     }
 }
 
@@ -92,7 +123,6 @@ class CabinetRepositoryTest {
                 json = ScanSseParser.defaultSseJson,
             )
 
-            // 1. Offline add (503 failure from server -> queued locally)
             server.enqueue(MockResponse().setResponseCode(503))
             val firstAdd = repo.addMedicationOfflineFirst(
                 displayName = "Mox 500mg Capsule",
@@ -103,13 +133,11 @@ class CabinetRepositoryTest {
             assertTrue(firstAdd.localDuplicateAlerts.isEmpty())
             assertEquals(SyncStatus.PENDING_CREATE, firstAdd.medication.syncStatus)
 
-            // 2. Offline duplicate salt check before adding Augmentin 625 Duo
             val dupAlerts = repo.checkOfflineDuplicates(listOf("amoxicillin", "clavulanic acid"))
             assertEquals(1, dupAlerts.size)
             assertEquals("amoxicillin", dupAlerts[0].canonicalSalt)
             assertEquals("Mox 500mg Capsule", dupAlerts[0].existingDisplayName)
 
-            // 3. Backend comes back online -> sync pushes PENDING_CREATE and pulls cabinet snapshot
             server.enqueue(
                 MockResponse()
                     .setResponseCode(201)
@@ -171,7 +199,6 @@ class CabinetRepositoryTest {
             assertTrue(active.all { !it.isPendingSync })
             assertEquals(setOf("srv-med-101", "srv-med-202"), active.map { it.id }.toSet())
 
-            // 4. Delete syncs remotely and removes from Room
             server.enqueue(MockResponse().setResponseCode(204))
             val deleted = repo.deleteMedication("srv-med-101")
             assertTrue(deleted)

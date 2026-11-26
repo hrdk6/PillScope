@@ -24,6 +24,7 @@ from backend.app.services.ddi_ml_inference import (
 )
 from backend.app.services.embeddings import EmbeddingProvider, get_embedding_provider
 from backend.app.services.hybrid_rag import HybridRagRetriever
+from backend.app.services.profiles import resolve_user_profile
 from backend.app.services.reranker import CrossEncoderReranker, get_reranker
 from backend.app.services.scan_analyzer import stream_scan_analysis
 
@@ -91,6 +92,11 @@ async def analyze_scan_sse(
     briefing_generator: Annotated[LlmBriefingGenerator, Depends(get_scan_briefing_generator)],
     ml_service: Annotated[DdiMlInferenceService | None, Depends(get_optional_ml_service)],
 ) -> EventSourceResponse:
+    profile = await resolve_user_profile(
+        session=session,
+        user_id=current_user.id,
+        profile_id=body.profile_id,
+    )
     rag_retriever: HybridRagRetriever | None = None
     if embedder is not None and reranker is not None:
         rag_retriever = HybridRagRetriever(
@@ -105,6 +111,7 @@ async def analyze_scan_sse(
     event_stream = stream_scan_analysis(
         session=session,
         user_id=current_user.id,
+        profile=profile,
         request=body,
         settings=settings,
         rag_retriever=rag_retriever,
@@ -118,15 +125,25 @@ async def analyze_scan_sse(
 async def list_scans(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    profile_id: UUID | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> ScanLogListResponse:
-    total_stmt = select(func.count(ScanLog.id)).where(ScanLog.user_id == current_user.id)
+    filters = [ScanLog.user_id == current_user.id]
+    if profile_id is not None:
+        profile = await resolve_user_profile(
+            session=session,
+            user_id=current_user.id,
+            profile_id=profile_id,
+        )
+        filters.append(ScanLog.profile_id == profile.id)
+
+    total_stmt = select(func.count(ScanLog.id)).where(*filters)
     total = int((await session.scalar(total_stmt)) or 0)
 
     items_stmt = (
         select(ScanLog)
-        .where(ScanLog.user_id == current_user.id)
+        .where(*filters)
         .order_by(ScanLog.created_at.desc())
         .limit(limit)
         .offset(offset)

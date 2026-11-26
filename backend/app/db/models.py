@@ -21,7 +21,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import relationship as orm_relationship
 
 from backend.app.db.base import Base
 
@@ -48,11 +49,65 @@ class User(Base):
         onupdate=func.now(),
     )
 
-    medications: Mapped[list["Medication"]] = relationship(
+    profiles: Mapped[list["Profile"]] = orm_relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    scan_logs: Mapped[list["ScanLog"]] = relationship(
+    medications: Mapped[list["Medication"]] = orm_relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+    scan_logs: Mapped[list["ScanLog"]] = orm_relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Profile(Base):
+    __tablename__ = "profiles"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    relationship: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("'self'")
+    )
+    allergies_json: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped["User"] = orm_relationship(back_populates="profiles")
+    medications: Mapped[list["Medication"]] = orm_relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+    scan_logs: Mapped[list["ScanLog"]] = orm_relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_profiles_user_id", "user_id"),
+        Index(
+            "uq_profiles_user_default",
+            "user_id",
+            unique=True,
+            postgresql_where=text("is_default = true"),
+        ),
     )
 
 
@@ -121,6 +176,11 @@ class Medication(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    profile_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     brand_mapping_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("brand_salt_mappings.id", ondelete="SET NULL"),
@@ -143,11 +203,13 @@ class Medication(Base):
         onupdate=func.now(),
     )
 
-    user: Mapped["User"] = relationship(back_populates="medications")
-    brand_mapping: Mapped["BrandSaltMapping | None"] = relationship()
+    user: Mapped["User"] = orm_relationship(back_populates="medications")
+    profile: Mapped["Profile"] = orm_relationship(back_populates="medications")
+    brand_mapping: Mapped["BrandSaltMapping | None"] = orm_relationship()
 
     __table_args__ = (
         Index("ix_medications_user_active", "user_id", "is_active"),
+        Index("ix_medications_profile_active", "profile_id", "is_active"),
         Index(
             "ix_medications_canonical_salt_keys_gin",
             "canonical_salt_keys",
@@ -282,6 +344,11 @@ class ScanLog(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    profile_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     input_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     raw_ocr_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     edge_quality_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
@@ -296,6 +363,12 @@ class ScanLog(Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     duplicate_salts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    allergy_alerts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    lifestyle_triggers: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     interactions: Mapped[list[dict[str, Any]]] = mapped_column(
@@ -314,7 +387,8 @@ class ScanLog(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    user: Mapped["User"] = relationship(back_populates="scan_logs")
+    user: Mapped["User"] = orm_relationship(back_populates="scan_logs")
+    profile: Mapped["Profile"] = orm_relationship(back_populates="scan_logs")
 
     __table_args__ = (
         CheckConstraint(
@@ -326,5 +400,70 @@ class ScanLog(Base):
             name="overall_risk_valid",
         ),
         Index("ix_scan_logs_user_created", "user_id", desc("created_at")),
+        Index("ix_scan_logs_profile_created", "profile_id", desc("created_at")),
         Index("ix_scan_logs_risk_created", "overall_risk", desc("created_at")),
+    )
+
+
+class RecallAlert(Base):
+    __tablename__ = "recall_alerts"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    recall_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    recalling_firm: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_description: Mapped[str] = mapped_column(Text, nullable=False)
+    reason_for_recall: Mapped[str] = mapped_column(Text, nullable=False)
+    distribution_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+    voluntary_mandated: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    report_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    recall_initiation_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    termination_date: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    brand_names: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    generic_names: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    canonical_salt_keys: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("recall_number", name="uq_recall_alerts_recall_number"),
+        CheckConstraint(
+            "classification IN ('Class I', 'Class II', 'Class III')",
+            name="classification_valid",
+        ),
+        Index("ix_recall_alerts_active_class", "status", "classification"),
+        Index(
+            "ix_recall_alerts_canonical_salt_keys_gin",
+            "canonical_salt_keys",
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_recall_alerts_brand_names_gin",
+            "brand_names",
+            postgresql_using="gin",
+        ),
     )

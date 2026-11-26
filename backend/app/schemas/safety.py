@@ -4,6 +4,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from backend.app.schemas.cabinet import DuplicateSaltAlert, RiskLevel
+from backend.app.schemas.lifestyle import LifestyleTrigger
+from backend.app.schemas.profiles import AllergyAlert
 
 InputMode = Literal["CAMERA_OCR", "MANUAL_TEXT", "BARCODE"]
 InteractionSource = Literal["deterministic_db", "ml_model", "hybrid"]
@@ -12,10 +14,13 @@ ClinicalSectionKey = Literal[
     "warnings",
     "dosage_and_administration",
     "contraindications",
+    "precautions",
 ]
 
 
 class ScanAnalyzeRequest(BaseModel):
+    profile_id: UUID | None = None
+    persist: bool = True
     input_mode: InputMode = "MANUAL_TEXT"
     submitted_query: str = Field(min_length=1, max_length=255)
     confirmed_salts: list[str] | None = None
@@ -81,11 +86,14 @@ class ClinicalSummary(BaseModel):
 
 class DeterministicSafetyEvent(BaseModel):
     scan_id: UUID
+    profile_id: UUID | None = None
+    persisted: bool = True
     submitted_query: str
     resolved_salts: list[str]
     overall_risk: RiskLevel
     safety_banner_locked: bool
     duplicate_salts: list[DuplicateSaltAlert]
+    allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
     deterministic_alerts: list[DeterministicDdiAlert]
 
 
@@ -100,6 +108,7 @@ class InteractionsEvent(BaseModel):
 class CitationsEvent(BaseModel):
     scan_id: UUID
     citations: list[MonographCitation]
+    lifestyle_triggers: list[LifestyleTrigger] = Field(default_factory=list)
 
 
 class ClinicalSummaryEvent(BaseModel):
@@ -114,12 +123,16 @@ class ClinicalSummaryEvent(BaseModel):
 
 class ScanCompleteEvent(BaseModel):
     scan_id: UUID
+    profile_id: UUID | None = None
+    persisted: bool = True
     submitted_query: str
     resolved_salts: list[str]
     overall_risk: RiskLevel
     safety_banner_locked: bool
     deterministic_alerts: list[DeterministicDdiAlert]
     duplicate_salts: list[DuplicateSaltAlert]
+    allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
+    lifestyle_triggers: list[LifestyleTrigger] = Field(default_factory=list)
     interactions: list[InteractionItem]
     clinical_summary: ClinicalSummary
     citations: list[MonographCitation]

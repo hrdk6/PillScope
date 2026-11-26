@@ -73,8 +73,8 @@ async def db_session_factory(
     async with factory() as session:
         await session.execute(
             text(
-                "TRUNCATE TABLE scan_logs, monograph_chunks, ddi_pairs, "
-                "medications, brand_salt_mappings, users RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE recall_alerts, scan_logs, monograph_chunks, ddi_pairs, "
+                "medications, profiles, brand_salt_mappings, users RESTART IDENTITY CASCADE"
             )
         )
         await session.commit()

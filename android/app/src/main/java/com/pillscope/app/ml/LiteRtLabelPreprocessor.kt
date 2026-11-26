@@ -213,9 +213,9 @@ class LiteRtLabelPreprocessor(
             val tooMuchGlare = glareRatio > FrameQualityResult.MAX_GLARE_RATIO
             val acceptable = !tooBlurry && !tooMuchGlare
             val guidance = when {
-                tooMuchGlare -> "Tilt the medicine strip slightly to reduce foil glare"
-                tooBlurry -> "Hold steady and bring the label into sharp focus"
-                else -> "Label sharp — reading generic composition"
+                tooMuchGlare -> "Hold steady — glare detected"
+                tooBlurry -> "Too blurry"
+                else -> "Sharp focus locked"
             }
             return FrameQualityResult(
                 blurScore = blurScore,

@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from backend.app.schemas.cabinet import DuplicateSaltAlert, RiskLevel
+from backend.app.schemas.profiles import AllergyAlert
 from backend.app.schemas.safety import (
     ClinicalSummary,
     DeterministicDdiAlert,
@@ -30,6 +31,7 @@ class RagEvalCase(BaseModel):
     safety_banner_locked: bool
     deterministic_alerts: list[DeterministicDdiAlert] = Field(default_factory=list)
     duplicate_salts: list[DuplicateSaltAlert] = Field(default_factory=list)
+    allergy_alerts: list[AllergyAlert] = Field(default_factory=list)
     citations: list[MonographCitation] = Field(default_factory=list)
     raw_llm_summary: ClinicalSummary
     expect_abstain: bool = False
@@ -156,6 +158,7 @@ def run_rag_eval_gate(
             deterministic_alerts=case.deterministic_alerts,
             interactions=[],
             citations=case.citations,
+            allergy_alerts=case.allergy_alerts,
         )
         case_result, final_summary, verified_cites = verify_case_spans(
             case_id=case.case_id,

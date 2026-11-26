@@ -72,22 +72,26 @@ class MedicineLabelAnalyzer(
                 }
 
                 val cropped = preprocessor.cropToLabel(uprightBitmap, quality.cropBox)
-                val ocrText = try {
-                    ocrEngine.recognizeText(cropped)
+                val ocrResult = try {
+                    ocrEngine.recognizeTextWithBlocks(
+                        bitmap = cropped,
+                        parentCropBox = quality.cropBox,
+                    )
                 } finally {
                     if (cropped !== uprightBitmap) {
                         cropped.recycle()
                     }
                 }
 
-                val chips = OnDeviceSaltChipExtractor.extractSaltChips(ocrText)
-                val brandGuess = OnDeviceSaltChipExtractor.extractPrimaryBrandGuess(ocrText)
+                val chips = OnDeviceSaltChipExtractor.extractSaltChips(ocrResult.rawText)
+                val brandGuess = OnDeviceSaltChipExtractor.extractPrimaryBrandGuess(ocrResult.rawText)
                 onResult(
                     CameraPipelineResult(
                         quality = quality,
-                        rawOcrText = ocrText,
+                        rawOcrText = ocrResult.rawText,
                         localSaltChips = chips,
                         primaryBrandGuess = brandGuess,
+                        ocrTextBlocks = ocrResult.blocks,
                     ),
                 )
             } finally {

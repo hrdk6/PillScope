@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Retrofit
@@ -34,6 +35,17 @@ class InMemoryScanReportDao : ScanReportDao {
     override fun observeRecentReports(limit: Int): Flow<List<CachedScanReportEntity>> =
         store.map { map ->
             map.values.sortedByDescending { it.createdAtEpochMs }.take(limit)
+        }
+
+    override fun observeRecentReportsForProfile(
+        profileId: String,
+        limit: Int,
+    ): Flow<List<CachedScanReportEntity>> =
+        store.map { map ->
+            map.values
+                .filter { it.profileId == profileId }
+                .sortedByDescending { it.createdAtEpochMs }
+                .take(limit)
         }
 
     override suspend fun getByScanId(scanId: String): CachedScanReportEntity? = store.value[scanId]
@@ -104,6 +116,70 @@ class ScanRepositoryAndEdgeVisionTest {
             assertTrue(cached.safetyBannerLocked)
             assertEquals(RiskLevel.MAJOR, cached.overallRisk)
             assertEquals(88, cached.latencyMs)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun checkBeforeBuyingSandboxScanSkipsRoomPersistenceWhilePreservingAlerts() = runTest {
+        val server = MockWebServer()
+        val sseBody = """
+            id: 1
+            event: deterministic_safety
+            data: {"scan_id":"scan-sandbox-7","profile_id":"prof-mom","persisted":false,"submitted_query":"Augmentin 625","resolved_salts":["amoxicillin","clavulanic acid"],"overall_risk":"MAJOR","safety_banner_locked":true,"duplicate_salts":[],"allergy_alerts":[{"allergen":"penicillin","canonical_salt":"amoxicillin","match_type":"drug_class","matched_class":"penicillin","severity":"MAJOR","reason":"Amoxicillin belongs to the penicillin class."}],"deterministic_alerts":[]}
+
+            id: 2
+            event: citations
+            data: {"scan_id":"scan-sandbox-7","citations":[],"lifestyle_triggers":[{"type":"WITH_FOOD","severity":"INFO","short_note":"Take at the start of a meal to reduce stomach upset.","source_section":"dosage_and_administration"}]}
+
+            id: 3
+            event: complete
+            data: {"scan_id":"scan-sandbox-7","profile_id":"prof-mom","persisted":false,"submitted_query":"Augmentin 625","resolved_salts":["amoxicillin","clavulanic acid"],"overall_risk":"MAJOR","safety_banner_locked":true,"deterministic_alerts":[],"duplicate_salts":[],"allergy_alerts":[{"allergen":"penicillin","canonical_salt":"amoxicillin","match_type":"drug_class","matched_class":"penicillin","severity":"MAJOR","reason":"Amoxicillin belongs to the penicillin class."}],"lifestyle_triggers":[{"type":"WITH_FOOD","severity":"INFO","short_note":"Take at the start of a meal to reduce stomach upset.","source_section":"dosage_and_administration"}],"interactions":[],"clinical_summary":{"headline":"Penicillin allergy conflict","patient_explanation":"Do not take amoxicillin with a documented penicillin allergy.","actionable_next_steps":["Ask prescriber for a non-beta-lactam alternative."],"cited_chunk_ids":[],"abstained":false},"citations":[],"citation_verified":true,"blocked_citation_ids":[],"latency_ms":64}
+
+        """.trimIndent() + "\n\n"
+
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody),
+        )
+        server.start()
+        try {
+            val reportDao = InMemoryScanReportDao()
+            val repo = ScanRepository(
+                api = createApi(server.url("/").toString()),
+                sseClient = OkHttpScanSseClient(OkHttpClient(), server.url("/").toString()),
+                scanReportDao = reportDao,
+                json = ScanSseParser.defaultSseJson,
+            )
+
+            val states = repo.analyzeMedicineStream(
+                ScanAnalyzeRequestDto(
+                    profileId = "prof-mom",
+                    persist = false,
+                    inputMode = "CAMERA_OCR",
+                    submittedQuery = "Augmentin 625",
+                    confirmedSalts = listOf("amoxicillin", "clavulanic acid"),
+                ),
+            ).toList()
+
+            val finalState = states.last()
+            assertEquals(AnalysisStage.COMPLETE, finalState.stage)
+            assertFalse(finalState.persisted)
+            assertEquals("prof-mom", finalState.profileId)
+            assertTrue(finalState.safetyBannerLocked)
+            assertEquals(1, finalState.allergyAlerts.size)
+            assertEquals("penicillin", finalState.allergyAlerts.first().allergen)
+            assertEquals(1, finalState.lifestyleTriggers.size)
+            assertEquals("WITH_FOOD", finalState.lifestyleTriggers.first().type)
+            assertNull(repo.loadCachedReport("scan-sandbox-7"))
+
+            val recorded = server.takeRequest()
+            val sentBody = recorded.body.readUtf8()
+            assertTrue(sentBody.contains("\"persist\":false"))
+            assertTrue(sentBody.contains("\"profile_id\":\"prof-mom\""))
         } finally {
             server.shutdown()
         }

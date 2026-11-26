@@ -41,6 +41,12 @@ CLINICAL_SECTIONS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "CONTRAINDICATIONS",
         ("contraindications",),
     ),
+    (
+        "precautions",
+        "42232-9",
+        "PRECAUTIONS",
+        ("precautions",),
+    ),
 )
 
 LOINC_TO_SECTION: dict[str, tuple[str, str]] = {
@@ -50,6 +56,7 @@ LOINC_TO_SECTION: dict[str, tuple[str, str]] = {
     "34066-1": ("warnings", "BOXED WARNING"),
     "34068-7": ("dosage_and_administration", "DOSAGE AND ADMINISTRATION"),
     "34070-3": ("contraindications", "CONTRAINDICATIONS"),
+    "42232-9": ("precautions", "PRECAUTIONS"),
 }
 
 _WHITESPACE_RE = re.compile(r"\s+")
