@@ -1,0 +1,23 @@
+id,name,price(₹),Is_discontinued,manufacturer_name,type,pack_size_label,short_composition1,short_composition2
+1,Augmentin 625 Duo Tablet,223.42,FALSE,Glaxo SmithKline Pharmaceuticals Ltd,allopathy,strip of 10 tablets,Amoxycillin  (500mg),Clavulanic Acid (125mg)
+2,Mox 500mg Capsule,107.00,FALSE,Sun Pharmaceutical Industries Ltd,allopathy,strip of 15 capsules,Amoxycillin (500mg),
+3,Clavam 625 Tablet,201.71,FALSE,Alkem Laboratories Ltd,allopathy,strip of 10 tablets,Amoxycillin (500mg),Clavulanic Acid (125mg)
+4,Dolo 650 Tablet,33.76,FALSE,Micro Labs Ltd,allopathy,strip of 15 tablets,Paracetamol (650mg),
+5,Calpol 500mg Tablet,15.60,FALSE,Glaxo SmithKline Pharmaceuticals Ltd,allopathy,strip of 15 tablets,Paracetamol (500mg),
+6,Combiflam Tablet,44.70,FALSE,Sanofi India Ltd,allopathy,strip of 20 tablets,Ibuprofen (400mg),Paracetamol (325mg)
+7,Crocin Advance Tablet,20.00,FALSE,Glaxo SmithKline Pharmaceuticals Ltd,allopathy,strip of 20 tablets,Paracetamol (500mg),
+8,Pan 40 Tablet,155.00,FALSE,Alkem Laboratories Ltd,allopathy,strip of 15 tablets,Pantoprazole (40mg),
+9,Pan-D Capsule PR,199.00,FALSE,Alkem Laboratories Ltd,allopathy,strip of 15 capsule pr,Domperidone (30mg),Pantoprazole (40mg)
+10,Telma 40 Tablet,232.00,FALSE,Glenmark Pharmaceuticals Ltd,allopathy,strip of 30 tablets,Telmisartan (40mg),
+11,Ecosprin 75 Tablet,5.49,FALSE,USV Ltd,allopathy,strip of 14 tablets,Aspirin (75mg),
+12,Atorva 10 Tablet,65.00,FALSE,Zydus Cadila,allopathy,strip of 15 tablets,Atorvastatin Calcium (10mg),
+13,Glycomet 500 SR Tablet,41.00,FALSE,USV Ltd,allopathy,strip of 20 tablet sr,Metformin Hydrochloride (500mg),
+14,Voveran SR 100 Tablet,142.00,FALSE,Novartis India Ltd,allopathy,strip of 15 tablet sr,Diclofenac Sodium (100mg),
+15,Voveran 50 GE Tablet,110.00,FALSE,Novartis India Ltd,allopathy,strip of 15 tablets,Diclofenac Potassium (50mg),
+16,Acitrom 2 Tablet,245.00,FALSE,Abbott,allopathy,strip of 30 tablets,Acenocoumarol (2mg),
+17,Warf 5 Tablet,82.00,FALSE,Cipla Ltd,allopathy,strip of 30 tablets,Warfarin Sodium (5mg),
+18,Azithral 500 Tablet,131.94,FALSE,Alembic Pharmaceuticals Ltd,allopathy,strip of 5 tablets,Azithromycin (500mg),
+19,Shelcal 500 Tablet,131.00,FALSE,Torrent Pharmaceuticals Ltd,allopathy,strip of 15 tablets,Calcium Carbonate (500mg),Vitamin D3 (250IU)
+20,Allegra 120mg Tablet,218.00,FALSE,Sanofi India Ltd,allopathy,strip of 10 tablets,Fexofenadine Hydrochloride (120mg),
+21,Discontinued Legacy Tab,50.00,TRUE,Legacy Pharma,allopathy,strip of 10 tablets,Paracetamol (500mg),
+22,Malformed Missing Composition,10.00,FALSE,Unknown Pharma,allopathy,strip of 10 tablets,,

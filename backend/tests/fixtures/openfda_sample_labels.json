@@ -1,0 +1,58 @@
+{
+  "results": [
+    {
+      "set_id": "d91934a0-902e-c26c-23ca-d5accc4151b6",
+      "version": "12",
+      "effective_time": "20250115",
+      "openfda": {
+        "generic_name": ["WARFARIN SODIUM"],
+        "brand_name": ["COUMADIN", "JANTOVEN"]
+      },
+      "drug_interactions": [
+        "7 DRUG INTERACTIONS. Drugs may interact with warfarin sodium through pharmacodynamic or pharmacokinetic mechanisms. Concomitant use of aspirin, nonsteroidal anti-inflammatory drugs (NSAIDs) such as ibuprofen or diclofenac, or antiplatelet agents such as clopidogrel significantly increases the risk of serious and potentially fatal gastrointestinal bleeding. CYP2C9 inhibitors such as fluconazole, amiodarone, and metronidazole elevate INR and bleeding risk. Monitor INR frequently whenever interacting drugs are initiated or discontinued."
+      ],
+      "warnings_and_precautions": [
+        "5 WARNINGS AND PRECAUTIONS. Warfarin sodium can cause major or fatal bleeding. Perform regular monitoring of INR in all treated patients. Drugs, dietary changes, and acute illness affect INR levels achieved with warfarin therapy."
+      ],
+      "dosage_and_administration": [
+        "2 DOSAGE AND ADMINISTRATION. Individualize the dosing regimen for each patient and adjust based on INR response. Typical initial dosing is 2 mg to 5 mg orally once daily, with target INR of 2.0 to 3.0 for most indications."
+      ]
+    },
+    {
+      "set_id": "a12345b0-4411-4a2b-99cc-112233445566",
+      "version": "8",
+      "effective_time": "20250210",
+      "openfda": {
+        "generic_name": ["ASPIRIN"],
+        "brand_name": ["ECOSPRIN", "BAYER ASPIRIN"]
+      },
+      "drug_interactions": [
+        "DRUG INTERACTIONS: Concurrent administration of aspirin with anticoagulants such as warfarin or acenocoumarol increases risk of severe hemorrhage due to additive inhibition of platelet aggregation and coagulation pathways. Concomitant ibuprofen may interfere with the antiplatelet effect of low-dose aspirin."
+      ],
+      "warnings": [
+        "WARNINGS: Stomach bleeding warning. This product contains an NSAID, which may cause severe stomach bleeding. The chance is higher if you take a blood thinning anticoagulant or steroid drug, or take other drugs containing prescription or nonprescription NSAIDs."
+      ],
+      "dosage_and_administration": [
+        "DOSAGE AND ADMINISTRATION: For cardiovascular antiplatelet prophylaxis, typical adult dose is 75 mg to 100 mg orally once daily as directed by a physician."
+      ]
+    },
+    {
+      "set_id": "b7788990-1234-4abc-8def-778899001122",
+      "version": "5",
+      "effective_time": "20241105",
+      "openfda": {
+        "generic_name": ["AMOXICILLIN"],
+        "brand_name": ["AMOXIL", "MOX"]
+      },
+      "drug_interactions": [
+        "7 DRUG INTERACTIONS. Probenecid decreases the renal tubular secretion of amoxicillin. Abnormal prolongation of prothrombin time (increased INR) has been reported in patients receiving amoxicillin and oral anticoagulants such as warfarin; appropriate monitoring should be undertaken when anticoagulants are prescribed concurrently."
+      ],
+      "warnings_and_precautions": [
+        "5 WARNINGS AND PRECAUTIONS. Serious and occasionally fatal hypersensitivity anaphylactic reactions have been reported in patients on penicillin therapy. Avoid duplicate beta-lactam therapy containing amoxicillin."
+      ],
+      "dosage_and_administration": [
+        "2 DOSAGE AND ADMINISTRATION. Typical adult dosing for mild-to-moderate infections is 500 mg every 12 hours or 250 mg every 8 hours orally."
+      ]
+    }
+  ]
+}

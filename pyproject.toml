@@ -1,0 +1,110 @@
+[project]
+name = "pillscope"
+version = "0.1.0"
+description = "PillScope — AI Medication Safety & Drug-Interaction Copilot"
+readme = "ARCHITECTURE.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.32.0,<1.0.0",
+    "pydantic[email]>=2.9.0,<3.0.0",
+    "pydantic-settings>=2.6.0,<3.0.0",
+    "sqlalchemy[asyncio]>=2.0.36,<3.0.0",
+    "asyncpg>=0.30.0,<1.0.0",
+    "alembic>=1.14.0,<2.0.0",
+    "pgvector>=0.3.6,<1.0.0",
+    "redis>=5.2.0,<6.0.0",
+    "arq>=0.26.1,<1.0.0",
+    "sse-starlette>=2.1.3,<4.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "pyjwt[crypto]>=2.10.0,<3.0.0",
+    "pwdlib[argon2]>=0.2.1,<1.0.0",
+    "structlog>=24.4.0,<26.0.0",
+    "opentelemetry-api>=1.28.0,<2.0.0",
+    "opentelemetry-sdk>=1.28.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "rdkit>=2024.9.1",
+    "lightgbm>=4.5.0,<5.0.0",
+    "torch>=2.5.0,<3.0.0",
+    "scikit-learn>=1.5.2,<2.0.0",
+    "numpy>=2.1.0,<3.0.0",
+    "pandas>=2.2.3,<3.0.0",
+    "mlflow>=2.18.0,<4.0.0",
+    "sentence-transformers>=3.3.0,<6.0.0",
+]
+eval = [
+    "deepeval>=2.0.0,<4.0.0",
+    "ragas>=0.2.6,<1.0.0",
+    "langfuse>=2.55.0,<4.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0,<1.0.0",
+    "pytest>=8.3.4,<9.0.0",
+    "pytest-asyncio>=0.24.0,<1.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+    "mypy>=1.13.0,<2.0.0",
+    "pyyaml>=6.0.2,<7.0.0",
+]
+
+[tool.uv]
+package = false
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = [".", "backend", "ml", "eval"]
+exclude = [".venv", "android", "ml/artifacts", "mlruns"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+ignore = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests", "ml", "eval"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra -q"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+follow_imports_for_stubs = true
+exclude = ["android", "ml/artifacts"]
+
+[[tool.mypy.overrides]]
+module = ["rdkit", "rdkit.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = [
+    "lightgbm.*",
+    "sklearn.*",
+    "mlflow.*",
+    "joblib.*",
+    "pandas.*",
+    "scipy.*",
+    "deepeval.*",
+    "ragas.*",
+    "opentelemetry.exporter.*",
+]
+ignore_missing_imports = true

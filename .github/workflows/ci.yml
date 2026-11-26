@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-typecheck-and-pytest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: pillscope
+          POSTGRES_USER: pillscope
+          POSTGRES_PASSWORD: pillscope_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pillscope -d pillscope"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://pillscope:pillscope_dev_password@localhost:5432/pillscope
+      REDIS_URL: redis://localhost:6379/0
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev --extra ml
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy backend/app backend/scripts ml/ddi eval
+
+      - name: Run Alembic migrations
+        run: uv run alembic upgrade head
+
+      - name: Run pytest
+        run: uv run pytest -v
+
+  safety-and-citation-regression-gate:
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --group dev --extra ml
+
+      - name: Prepare DDInter dataset
+        run: >-
+          uv run python -m ml.ddi.data_prep
+          --input ml/ddi/fixtures/ddinter_real_sample.csv
+          --output data/processed/ddi_prepared.parquet
+          --cache-db data/cache/pubchem_smiles_cache.sqlite3
+          --smiles-seed-csv ml/ddi/fixtures/drug_smiles_seed.csv
+          --offline
+
+      - name: Train and export DDI model artifact
+        run: >-
+          uv run python -m ml.ddi.train
+          --dataset data/processed/ddi_prepared.parquet
+          --artifact-output ml/artifacts/ddi_ensemble.joblib
+          --mlflow-uri sqlite:///mlruns/mlflow.db
+          --fp-bits 1024
+          --torch-epochs 45
+          --seed 42
+
+      - name: Run offline ML safety eval gate (100% Major recall + macro-F1)
+        run: >-
+          uv run python -m eval.benchmarks.ml_eval_gate
+          --artifact ml/artifacts/ddi_ensemble.joblib
+          --holdout eval/datasets/major_ddi_holdout.json
+          --min-macro-f1 0.75
+          --min-major-recall 1.0
+          --min-ml-major-recall 0.70
+          --report-out eval/reports/ml_eval_report.json
+
+      - name: Run RAG faithfulness & citation-span regression gate
+        run: >-
+          uv run python -m eval.rag_eval.rag_eval_gate
+          --dataset eval/datasets/rag_safety_cases.json
+          --judge deterministic
+          --min-faithfulness 0.70
+          --min-span-support 0.75
+          --report-out eval/reports/rag_eval_report.json
+
+      - name: Upload evaluation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pillscope-eval-reports
+          path: eval/reports/*.json
+
+  android-build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile Kotlin, run JVM unit tests, and assemble debug APK
+        run: ./gradlew --no-daemon compileDebugKotlin testDebugUnitTest assembleDebug
+
+  docker-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: docker compose -f infra/docker-compose.yml config --quiet

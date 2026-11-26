@@ -1,0 +1,99 @@
+package com.pillscope.app.ml
+
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+
+class MedicineLabelAnalyzer(
+    private val preprocessor: LiteRtLabelPreprocessor,
+    private val ocrEngine: MlKitOcrEngine,
+    private val scope: CoroutineScope,
+    private val minIntervalMs: Long = 350L,
+    private val onResult: (CameraPipelineResult) -> Unit,
+) : ImageAnalysis.Analyzer {
+    private val isProcessing = AtomicBoolean(false)
+    private val lastProcessedMs = AtomicLong(0L)
+
+    override fun analyze(imageProxy: ImageProxy) {
+        val now = System.currentTimeMillis()
+        if (now - lastProcessedMs.get() < minIntervalMs || !isProcessing.compareAndSet(false, true)) {
+            imageProxy.close()
+            return
+        }
+        lastProcessedMs.set(now)
+
+        val uprightBitmap = runCatching {
+            val rawBitmap = imageProxy.toBitmap()
+            val rotation = imageProxy.imageInfo.rotationDegrees
+            if (rotation == 0) {
+                rawBitmap
+            } else {
+                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                val rotated = Bitmap.createBitmap(
+                    rawBitmap,
+                    0,
+                    0,
+                    rawBitmap.width,
+                    rawBitmap.height,
+                    matrix,
+                    true,
+                )
+                rawBitmap.recycle()
+                rotated
+            }
+        }.getOrNull()
+
+        imageProxy.close()
+
+        if (uprightBitmap == null) {
+            isProcessing.set(false)
+            return
+        }
+
+        scope.launch(Dispatchers.Default) {
+            try {
+                val quality = preprocessor.analyzeFrame(uprightBitmap)
+                if (!quality.isAcceptable) {
+                    onResult(
+                        CameraPipelineResult(
+                            quality = quality,
+                            rawOcrText = "",
+                            localSaltChips = emptyList(),
+                            primaryBrandGuess = "",
+                        ),
+                    )
+                    return@launch
+                }
+
+                val cropped = preprocessor.cropToLabel(uprightBitmap, quality.cropBox)
+                val ocrText = try {
+                    ocrEngine.recognizeText(cropped)
+                } finally {
+                    if (cropped !== uprightBitmap) {
+                        cropped.recycle()
+                    }
+                }
+
+                val chips = OnDeviceSaltChipExtractor.extractSaltChips(ocrText)
+                val brandGuess = OnDeviceSaltChipExtractor.extractPrimaryBrandGuess(ocrText)
+                onResult(
+                    CameraPipelineResult(
+                        quality = quality,
+                        rawOcrText = ocrText,
+                        localSaltChips = chips,
+                        primaryBrandGuess = brandGuess,
+                    ),
+                )
+            } finally {
+                uprightBitmap.recycle()
+                isProcessing.set(false)
+            }
+        }
+    }
+}
