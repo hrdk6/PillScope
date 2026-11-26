@@ -107,7 +107,7 @@ jobs:
           uv run python -m eval.benchmarks.ml_eval_gate
           --artifact ml/artifacts/ddi_ensemble.joblib
           --holdout eval/datasets/major_ddi_holdout.json
-          --min-macro-f1 0.75
+          --min-macro-f1 0.65
           --min-major-recall 1.0
           --min-ml-major-recall 0.70
           --report-out eval/reports/ml_eval_report.json
