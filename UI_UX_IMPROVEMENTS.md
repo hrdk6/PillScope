@@ -156,13 +156,13 @@ PillScope's Material 3 clinical theme (`#0B5D5B` / `#4FD1C5` teal, slate surface
 
 ## Prioritized Fix Checklist
 
-- [ ] Move `RiskGaugeHeroCard` headline text below the gauge needle/pivot (`ProgressiveAnalysisScreen.kt`).
-- [ ] Hide camera HUD status pill & shutter controls when `!hasCameraPermission`, and visually dim disabled shutter/dialog buttons (`CameraScanScreen.kt`, `CabinetScreen.kt`, `ProgressiveAnalysisScreen.kt`, `ProfileSwitcherSheet.kt`).
-- [ ] Reset/scope `AnalysisViewModel` state on profile switch, auto-sync `CabinetViewModel` on profile switch, and prevent `MainActivity` config changes from clearing Scan/Safety state (`PillScopeApp.kt`, `AnalysisViewModel.kt`, `CabinetViewModel.kt`).
-- [ ] Fix Network Graph viewport clipping (`FlowRow` legend off-screen), add `"Not analyzed yet"` edge semantics, and expose TalkBack accessibility (`CabinetScreen.kt`, `CabinetNetworkGraph.kt`, `CabinetGraphState.kt`).
-- [ ] Pin Onboarding consent checkboxes & CTA in `Scaffold(bottomBar = ...)`, make checkbox rows `.toggleable`, and add `imePadding()` across forms (`OnboardingConsentScreen.kt`, `AuthScreen.kt`, `ProfileSwitcherSheet.kt`).
-- [ ] Add `PaddingValues(bottom = 88.dp)` to Cabinet `LazyColumn`, make alert/sync banners dismissible and auto-clearing on delete, and add Delete/Active controls inside the detail sheet (`CabinetScreen.kt`, `CabinetViewModel.kt`).
-- [ ] Fix `FIT_CENTER` camera pillarboxing, add scrim behind `"Checking against ...'s cabinet"`, clarify `"Save to History"` vs `"Add to Cabinet"`, show strengths on candidate cards, and stabilize `"Force scan"` (`CameraScanScreen.kt`, `ScanViewModel.kt`, `MedicineLabelAnalyzer.kt`).
-- [ ] Fix Safety screen banner clipping, reorder `"Add to Cabinet anyway"` below clinical details, add `IDLE` `"Scan a medicine"` CTA, fix sandbox spinner visibility, and scroll to top when opening cached history (`ProgressiveAnalysisScreen.kt`).
-- [ ] Fix Dark Mode contrast on `"N allergies"` / `"FDA Recall"` / `"Major"` badges & dark-mode shutter icon, and update Schedule card spacing, recall warnings, empty-schedule guidance, and dosage presets (`Theme.kt`, `ScheduleScreen.kt`).
-- [ ] Clean up patient-facing copy (remove `RDKit ML` / `LOINC` / `SPL` jargon), add `verticalScroll` to `EdgeInteractionDetailSheet`, resolve Compose deprecation warnings, and add dark-mode CSS to `legal.py`.
+- [x] Move `RiskGaugeHeroCard` headline text below the gauge needle/pivot (`ProgressiveAnalysisScreen.kt`).
+- [x] Hide camera HUD status pill & shutter controls when `!hasCameraPermission`, and visually dim disabled shutter/dialog buttons (`CameraScanScreen.kt`, `CabinetScreen.kt`, `ProgressiveAnalysisScreen.kt`, `ProfileSwitcherSheet.kt`).
+- [x] Reset/scope `AnalysisViewModel` state on profile switch, auto-sync `CabinetViewModel` on profile switch, and prevent `MainActivity` config changes from clearing Scan/Safety state (`PillScopeApp.kt`, `AnalysisViewModel.kt`, `CabinetViewModel.kt`).
+- [x] Fix Network Graph viewport clipping (`FlowRow` legend off-screen), add `"Not analyzed yet"` edge semantics, and expose TalkBack accessibility (`CabinetScreen.kt`, `CabinetNetworkGraph.kt`, `CabinetGraphState.kt`).
+- [x] Pin Onboarding consent checkboxes & CTA in `Scaffold(bottomBar = ...)`, make checkbox rows `.toggleable`, and add `imePadding()` across forms (`OnboardingConsentScreen.kt`, `AuthScreen.kt`, `ProfileSwitcherSheet.kt`).
+- [x] Add `PaddingValues(bottom = 88.dp)` to Cabinet `LazyColumn`, make alert/sync banners dismissible and auto-clearing on delete, and add Delete/Active controls inside the detail sheet (`CabinetScreen.kt`, `CabinetViewModel.kt`).
+- [x] Fix `FIT_CENTER` camera pillarboxing, add scrim behind `"Checking against ...'s cabinet"`, clarify `"Save to History"` vs `"Add to Cabinet"`, show strengths on candidate cards, and stabilize `"Force scan"` (`CameraScanScreen.kt`, `ScanViewModel.kt`, `MedicineLabelAnalyzer.kt`).
+- [x] Fix Safety screen banner clipping, reorder `"Add to Cabinet anyway"` below clinical details, add `IDLE` `"Scan a medicine"` CTA, fix sandbox spinner visibility, and scroll to top when opening cached history (`ProgressiveAnalysisScreen.kt`).
+- [x] Fix Dark Mode contrast on `"N allergies"` / `"FDA Recall"` / `"Major"` badges & dark-mode shutter icon, and update Schedule card spacing, recall warnings, empty-schedule guidance, and dosage presets (`Theme.kt`, `ScheduleScreen.kt`).
+- [x] Clean up patient-facing copy (remove `RDKit ML` / `LOINC` / `SPL` jargon), add `verticalScroll` to `EdgeInteractionDetailSheet`, resolve Compose deprecation warnings, and add dark-mode CSS to `legal.py`.

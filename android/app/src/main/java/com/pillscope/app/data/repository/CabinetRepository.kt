@@ -278,6 +278,7 @@ class CabinetRepository {
         id: String,
         displayName: String,
         dosageSchedule: String?,
+        genericSalts: List<SaltComponentDto>? = null,
     ): MedicationToggleResult {
         val existing = medicationDao.getById(id)
             ?: return MedicationToggleResult(updatedLocally = false, syncedWithServer = false)
@@ -289,6 +290,17 @@ class CabinetRepository {
                 apiError = ApiCallError.Validation("Medication name cannot be blank."),
             )
         }
+        val cleanedSalts = genericSalts
+            ?.map { it.copy(canonicalSalt = it.canonicalSalt.trim().lowercase()) }
+            ?.filter { it.canonicalSalt.isNotEmpty() }
+            ?.distinctBy { it.canonicalSalt }
+        if (genericSalts != null && cleanedSalts.isNullOrEmpty()) {
+            return MedicationToggleResult(
+                updatedLocally = false,
+                syncedWithServer = false,
+                apiError = ApiCallError.Validation("At least one active ingredient is required."),
+            )
+        }
         val cleanedSchedule = dosageSchedule?.trim()?.takeIf { it.isNotEmpty() }
         val now = System.currentTimeMillis()
         val nextSyncStatus = if (existing.syncStatus == SyncStatus.PENDING_CREATE) {
@@ -296,9 +308,21 @@ class CabinetRepository {
         } else {
             SyncStatus.PENDING_UPDATE
         }
+        val nextSaltsJson = if (!cleanedSalts.isNullOrEmpty()) {
+            json.encodeToString(cleanedSalts)
+        } else {
+            existing.genericSaltsJson
+        }
+        val nextSaltKeysCsv = if (!cleanedSalts.isNullOrEmpty()) {
+            cleanedSalts.map { it.canonicalSalt }.sorted().joinToString(",")
+        } else {
+            existing.canonicalSaltKeysCsv
+        }
         medicationDao.upsert(
             existing.copy(
                 displayName = trimmedName,
+                genericSaltsJson = nextSaltsJson,
+                canonicalSaltKeysCsv = nextSaltKeysCsv,
                 dosageSchedule = cleanedSchedule,
                 syncStatus = nextSyncStatus,
                 updatedAtEpochMs = now,
@@ -312,6 +336,7 @@ class CabinetRepository {
                 id,
                 MedicationUpdateRequestDto(
                     displayName = trimmedName,
+                    genericSalts = cleanedSalts,
                     dosageSchedule = cleanedSchedule ?: "",
                 ),
             )
@@ -319,7 +344,12 @@ class CabinetRepository {
         return remoteResult.fold(
             onSuccess = { remote ->
                 medicationDao.upsert(fromRemoteDto(remote, existing.profileId, now))
-                MedicationToggleResult(updatedLocally = true, syncedWithServer = true)
+                MedicationToggleResult(
+                    updatedLocally = true,
+                    syncedWithServer = true,
+                    duplicateAlerts = remote.duplicateSalts,
+                    allergyAlerts = remote.allergyAlerts,
+                )
             },
             onFailure = { exc ->
                 MedicationToggleResult(
@@ -496,11 +526,13 @@ class CabinetRepository {
                 }
 
                 SyncStatus.PENDING_UPDATE -> {
+                    val salts = decodeSalts(entity.genericSaltsJson).takeIf { it.isNotEmpty() }
                     val remoteResult = runCatching {
                         api.updateMedication(
                             entity.id,
                             MedicationUpdateRequestDto(
                                 displayName = entity.displayName,
+                                genericSalts = salts,
                                 dosageSchedule = entity.dosageSchedule,
                                 isActive = entity.isActive,
                             ),

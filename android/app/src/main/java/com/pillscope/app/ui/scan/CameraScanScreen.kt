@@ -19,6 +19,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
@@ -35,6 +36,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -82,6 +86,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -94,6 +99,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
@@ -109,9 +115,11 @@ import com.pillscope.app.ml.FrameQualityResult
 import com.pillscope.app.ml.MedicineLabelAnalyzer
 import com.pillscope.app.ml.NormalizedCropRect
 import com.pillscope.app.ml.OcrTextBlockBox
+import com.pillscope.app.ui.common.formatSaltComponents
 import com.pillscope.app.ui.profiles.ActiveProfilePill
 import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
@@ -134,6 +142,8 @@ fun CameraScanScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -194,17 +204,25 @@ fun CameraScanScreen(
         )
         )
 
+    val hasMatchesBelow = state.resolvedCandidates.isNotEmpty() || state.localSaltChips.isNotEmpty()
+    val viewfinderHeight by animateDpAsState(
+        targetValue = if (hasMatchesBelow) 276.dp else 312.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "viewfinderHeight",
+    )
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(352.dp)
+                .height(viewfinderHeight)
                 .clip(RoundedCornerShape(28.dp))
                 .background(PillScopeColors.HudBackdrop),
         ) {
@@ -221,7 +239,7 @@ fun CameraScanScreen(
                 OpticalViewfinderHudOverlay(
                     cropBox = state.latestQuality?.cropBox ?: NormalizedCropRect.DEFAULT_LABEL_BOX,
                     ocrTextBlocks = state.ocrTextBlocks,
-                    isAcceptable = currentAcceptable,
+                    isAcceptable = currentAcceptable || state.isForcedCaptureHeld,
                     frameWidth = state.frameWidth,
                     frameHeight = state.frameHeight,
                     modifier = Modifier.fillMaxSize(),
@@ -230,22 +248,22 @@ fun CameraScanScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(24.dp),
+                        .padding(start = 24.dp, end = 24.dp, top = 62.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(
                         imageVector = Icons.Default.CameraAlt,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(44.dp),
+                        tint = Color.White.copy(alpha = 0.88f),
+                        modifier = Modifier.size(40.dp),
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
                     Text(
                         text = if (isPermanentlyDenied) {
                             "Camera permission is disabled. Open App Settings to enable live scanning, or search below."
                         } else {
-                            "Enable camera access to read blister packs and medicine labels on-device (photos stay on your phone)."
+                            "Enable camera access to scan medicine labels on-device. Photos never leave your phone."
                         },
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
@@ -272,6 +290,7 @@ fun CameraScanScreen(
                 }
             }
 
+            // Keep ActiveProfilePill consistently top-right across all tabs; camera tools sit top-left.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -280,12 +299,6 @@ fun CameraScanScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ActiveProfilePill(
-                    profile = activeProfile,
-                    onClick = onOpenProfileSwitcher,
-                    darkSurface = true,
-                )
-
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (hasCameraPermission && hasFlashUnit) {
                         IconButton(
@@ -295,8 +308,8 @@ fun CameraScanScreen(
                                 boundCamera?.cameraControl?.enableTorch(next)
                             },
                             modifier = Modifier
-                                .size(40.dp)
-                                .background(Color.Black.copy(alpha = 0.58f), CircleShape),
+                                .size(44.dp)
+                                .background(Color.Black.copy(alpha = 0.62f), CircleShape),
                         ) {
                             Icon(
                                 imageVector = if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
@@ -311,8 +324,8 @@ fun CameraScanScreen(
                         IconButton(
                             onClick = viewModel::toggleCameraFreeze,
                             modifier = Modifier
-                                .size(40.dp)
-                                .background(Color.Black.copy(alpha = 0.58f), CircleShape),
+                                .size(44.dp)
+                                .background(Color.Black.copy(alpha = 0.62f), CircleShape),
                         ) {
                             Icon(
                                 imageVector = if (state.isCameraFrozen) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -323,86 +336,173 @@ fun CameraScanScreen(
                         }
                     }
                 }
+
+                ActiveProfilePill(
+                    profile = activeProfile,
+                    onClick = onOpenProfileSwitcher,
+                    darkSurface = true,
+                )
             }
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            if (hasCameraPermission) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    QualityHudStatusPill(quality = state.latestQuality)
-                    if (hasCameraPermission && state.latestQuality != null && !currentAcceptable) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        QualityHudStatusPill(
+                            quality = state.latestQuality,
+                            isForcedCaptureHeld = state.isForcedCaptureHeld,
+                            isCameraFrozen = state.isCameraFrozen,
+                        )
+                        if (state.latestQuality != null && !currentAcceptable && !state.isForcedCaptureHeld) {
+                            Surface(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.requestForcedOcrCapture()
+                                },
+                                modifier = Modifier.heightIn(min = 38.dp),
+                                shape = CircleShape,
+                                color = PillScopeColors.ClinicalTeal,
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                ) {
+                                    Text(
+                                        text = "Force scan",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.68f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
+                            ) {
+                                Text(
+                                    text = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
+                                        "Quick check for ${activeProfile.name}"
+                                    } else {
+                                        "Checking against ${activeProfile.name}'s cabinet"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                )
+                            }
+                            if (state.resolvedCandidates.isNotEmpty()) {
+                                Surface(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            scrollState.animateScrollTo(scrollState.maxValue)
+                                        }
+                                    },
+                                    shape = CircleShape,
+                                    color = PillScopeColors.HudEmeraldLock.copy(alpha = 0.92f),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        val count = state.resolvedCandidates.size
+                                        Text(
+                                            text = "$count ${if (count == 1) "match" else "matches"} below",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF042625),
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            tint = Color(0xFF042625),
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        val canCapture = state.resolvedCandidates.isNotEmpty() ||
+                            state.localSaltChips.isNotEmpty() ||
+                            state.manualQuery.isNotBlank() ||
+                            state.rawOcrText.isNotBlank()
+                        val shutterContainerColor = when {
+                            !canCapture -> Color.Black.copy(alpha = 0.48f)
+                            currentAcceptable || state.isForcedCaptureHeld -> PillScopeColors.HudEmeraldLock
+                            else -> PillScopeColors.ClinicalTeal
+                        }
+                        val shutterBorderColor = if (canCapture) {
+                            Color.White.copy(alpha = 0.92f)
+                        } else {
+                            Color.White.copy(alpha = 0.28f)
+                        }
+                        val shutterIconTint = when {
+                            !canCapture -> Color.White.copy(alpha = 0.38f)
+                            currentAcceptable || state.isForcedCaptureHeld -> Color(0xFF042625)
+                            else -> MaterialTheme.colorScheme.onPrimary
+                        }
+                        val shutterDescription = when {
+                            !canCapture -> "Align a medicine label to run safety check"
+                            state.resolvedCandidates.size > 1 -> "Review ${state.resolvedCandidates.size} matches below"
+                            state.resolvedCandidates.size == 1 -> "Run safety check for ${state.resolvedCandidates.first().brandName}"
+                            else -> "Run safety check"
+                        }
+
                         Surface(
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.requestForcedOcrCapture()
-                            },
-                            shape = CircleShape,
-                            color = PillScopeColors.ClinicalTeal.copy(alpha = 0.92f),
-                        ) {
-                            Text(
-                                text = "Force scan",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
-                            "Sandbox check for ${activeProfile.name}"
-                        } else {
-                            "Checking against ${activeProfile.name}'s cabinet"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.85f),
-                    )
-
-                    val canCapture = state.resolvedCandidates.isNotEmpty() ||
-                        state.localSaltChips.isNotEmpty() ||
-                        state.manualQuery.isNotBlank() ||
-                        state.rawOcrText.isNotBlank()
-
-                    Surface(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.buildAnalyzeRequestForShutter()?.let(onAnalyzeRequest)
-                        },
-                        enabled = canCapture,
-                        shape = CircleShape,
-                        color = if (currentAcceptable) {
-                            PillScopeColors.HudEmeraldLock
-                        } else {
-                            PillScopeColors.ClinicalTeal
-                        },
-                        border = BorderStroke(3.dp, Color.White.copy(alpha = 0.9f)),
-                        modifier = Modifier.size(54.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
-                                    Icons.Default.ShoppingBag
+                                if (state.resolvedCandidates.size > 1) {
+                                    coroutineScope.launch {
+                                        scrollState.animateScrollTo(scrollState.maxValue)
+                                    }
                                 } else {
-                                    Icons.Default.CameraAlt
-                                },
-                                contentDescription = "Run safety check",
-                                tint = Color.White,
-                                modifier = Modifier.size(24.dp),
-                            )
+                                    viewModel.buildAnalyzeRequestForShutter()?.let(onAnalyzeRequest)
+                                }
+                            },
+                            enabled = canCapture,
+                            shape = CircleShape,
+                            color = shutterContainerColor,
+                            border = BorderStroke(3.dp, shutterBorderColor),
+                            modifier = Modifier.size(54.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
+                                        Icons.Default.ShoppingBag
+                                    } else {
+                                        Icons.Default.CameraAlt
+                                    },
+                                    contentDescription = shutterDescription,
+                                    tint = shutterIconTint,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -418,7 +518,7 @@ fun CameraScanScreen(
                     activeContainerColor = PillScopeColors.ClinicalTealContainer,
                     activeContentColor = PillScopeColors.ClinicalTealDeep,
                 ),
-                label = { Text("Add to Cabinet") },
+                label = { Text("Save to History") },
             )
             SegmentedButton(
                 selected = state.scanMode == ScanMode.CHECK_BEFORE_BUYING,
@@ -428,16 +528,24 @@ fun CameraScanScreen(
                     activeContainerColor = PillScopeColors.ModerateAmberSurface,
                     activeContentColor = PillScopeColors.ModerateAmberDark,
                 ),
-                label = { Text("Check Before Buying") },
+                label = { Text("Quick Check") },
             )
         }
 
+        val queryTrimmedLen = state.manualQuery.trim().length
         OutlinedTextField(
             value = state.manualQuery,
             onValueChange = viewModel::onManualQueryChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { viewModel.onSearchFocusChanged(it.isFocused) },
             singleLine = true,
             label = { Text("Search medicine brand or generic salt") },
+            supportingText = if (queryTrimmedLen in 1..2) {
+                { Text("Type at least 3 characters for brand suggestions, or tap Analyze below.") }
+            } else {
+                null
+            },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 when {
@@ -445,12 +553,20 @@ fun CameraScanScreen(
                         modifier = Modifier.size(24.dp),
                         color = PillScopeColors.ClinicalTeal,
                     )
-                    state.manualQuery.isNotEmpty() || state.rawOcrText.isNotEmpty() -> IconButton(
+                    state.manualQuery.isNotEmpty() -> IconButton(
+                        onClick = viewModel::clearManualSearchOnly,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear search",
+                        )
+                    }
+                    state.rawOcrText.isNotEmpty() -> IconButton(
                         onClick = viewModel::clearScanState,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Clear search and scan",
+                            contentDescription = "Clear scanned label",
                         )
                     }
                 }
@@ -500,7 +616,7 @@ fun CameraScanScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Detected active salts",
+                    text = "Detected active ingredients",
                     style = MaterialTheme.typography.titleMedium,
                     color = PillScopeColors.InkPrimary,
                 )
@@ -552,7 +668,7 @@ fun CameraScanScreen(
                 shape = RoundedCornerShape(16.dp),
             ) {
                 val count = state.localSaltChips.size
-                Text("Analyze $count detected ${if (count == 1) "salt" else "salts"}")
+                Text("Check $count detected ${if (count == 1) "ingredient" else "ingredients"}")
             }
         }
 
@@ -565,9 +681,9 @@ fun CameraScanScreen(
                 shape = RoundedCornerShape(18.dp),
             ) {
                 val actionPrefix = if (state.scanMode == ScanMode.CHECK_BEFORE_BUYING) {
-                    "Preview safety for"
+                    "Quick check"
                 } else {
-                    "Analyze"
+                    "Check safety for"
                 }
                 Text("$actionPrefix \"${state.manualQuery.trim()}\"")
             }
@@ -616,7 +732,7 @@ private fun CameraPreviewWithAnalyzer(
         },
         factory = { ctx ->
             val previewView = PreviewView(ctx).apply {
-                scaleType = PreviewView.ScaleType.FIT_CENTER
+                scaleType = PreviewView.ScaleType.FILL_CENTER
             }
             previewViewRef = previewView
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
@@ -686,27 +802,29 @@ private fun OpticalViewfinderHudOverlay(
     )
 
     Canvas(modifier = modifier) {
-        // Compute the exact FIT_CENTER video content rect inside the PreviewView container
-        // so normalized OCR boxes and crop brackets align accurately across aspect ratios.
+        // Compute FILL_CENTER (center-crop) coordinate mapping so normalized OCR boxes and crop
+        // brackets match the full-bleed PreviewView without pillarboxing.
         val (contentLeft, contentTop, contentW, contentH) = if (frameWidth > 0 && frameHeight > 0) {
             val frameAspect = frameWidth.toFloat() / frameHeight.toFloat()
             val viewAspect = size.width / size.height.coerceAtLeast(1f)
             if (frameAspect > viewAspect) {
-                val h = size.width / frameAspect
-                listOf(0f, (size.height - h) / 2f, size.width, h)
-            } else {
                 val w = size.height * frameAspect
                 listOf((size.width - w) / 2f, 0f, w, size.height)
+            } else {
+                val h = size.width / frameAspect
+                listOf(0f, (size.height - h) / 2f, size.width, h)
             }
         } else {
             listOf(0f, 0f, size.width, size.height)
         }
 
         for (block in ocrTextBlocks) {
-            val bLeft = contentLeft + block.bounds.left * contentW
-            val bTop = contentTop + block.bounds.top * contentH
-            val bWidth = ((block.bounds.right - block.bounds.left) * contentW).coerceAtLeast(8f)
-            val bHeight = ((block.bounds.bottom - block.bounds.top) * contentH).coerceAtLeast(8f)
+            val bLeft = (contentLeft + block.bounds.left * contentW).coerceIn(0f, size.width)
+            val bTop = (contentTop + block.bounds.top * contentH).coerceIn(0f, size.height)
+            val bRight = (contentLeft + block.bounds.right * contentW).coerceIn(bLeft, size.width)
+            val bBottom = (contentTop + block.bounds.bottom * contentH).coerceIn(bTop, size.height)
+            val bWidth = (bRight - bLeft).coerceAtLeast(8f)
+            val bHeight = (bBottom - bTop).coerceAtLeast(8f)
             drawRoundRect(
                 color = palette.hudEmeraldLock.copy(alpha = 0.22f),
                 topLeft = Offset(bLeft, bTop),
@@ -722,16 +840,20 @@ private fun OpticalViewfinderHudOverlay(
             )
         }
 
-        val expandX = contentW * bracketInsetScale
-        val expandY = contentH * bracketInsetScale
-        val left = (contentLeft + cropBox.left * contentW - expandX).coerceAtLeast(16.dp.toPx())
-        val top = (contentTop + cropBox.top * contentH - expandY).coerceAtLeast(52.dp.toPx())
-        val right = (contentLeft + cropBox.right * contentW + expandX).coerceAtMost(size.width - 16.dp.toPx())
-        val bottom = (contentTop + cropBox.bottom * contentH + expandY).coerceAtMost(size.height - 96.dp.toPx())
+        val expandX = size.width * bracketInsetScale
+        val expandY = size.height * bracketInsetScale
+        val minLeft = 20.dp.toPx()
+        val minTop = 64.dp.toPx()
+        val maxRight = size.width - 20.dp.toPx()
+        val maxBottom = size.height - 112.dp.toPx()
+        val left = (contentLeft + cropBox.left * contentW - expandX).coerceIn(minLeft, (maxRight - 48f).coerceAtLeast(minLeft))
+        val top = (contentTop + cropBox.top * contentH - expandY).coerceIn(minTop, (maxBottom - 48f).coerceAtLeast(minTop))
+        val right = (contentLeft + cropBox.right * contentW + expandX).coerceIn(left + 48f, maxRight)
+        val bottom = (contentTop + cropBox.bottom * contentH + expandY).coerceIn(top + 48f, maxBottom)
         val rectWidth = (right - left).coerceAtLeast(40f)
         val rectHeight = (bottom - top).coerceAtLeast(40f)
 
-        val cornerLen = min(rectWidth, rectHeight) * 0.22f
+        val cornerLen = min(rectWidth, rectHeight) * 0.24f
         val strokePx = 4.dp.toPx()
         val glowPx = 9.dp.toPx()
 
@@ -779,15 +901,21 @@ private fun OpticalViewfinderHudOverlay(
 @Composable
 private fun QualityHudStatusPill(
     quality: FrameQualityResult?,
+    isForcedCaptureHeld: Boolean,
+    isCameraFrozen: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val isOk = quality?.isAcceptable == true
+    val isOk = quality?.isAcceptable == true || isForcedCaptureHeld
     val accent = when {
+        isForcedCaptureHeld -> PillScopeColors.HudEmeraldLock
+        isCameraFrozen -> Color.White.copy(alpha = 0.85f)
         quality == null -> Color.White.copy(alpha = 0.85f)
         isOk -> PillScopeColors.HudEmeraldLock
         else -> PillScopeColors.HudAmberGlow
     }
     val statusText = when {
+        isForcedCaptureHeld -> "Frame captured — tap Play to resume"
+        isCameraFrozen -> "Camera paused — tap Play to resume"
         quality == null -> "Align medicine label inside brackets"
         quality.glareRatio > FrameQualityResult.MAX_GLARE_RATIO -> "Hold steady — glare detected"
         quality.blurScore < FrameQualityResult.MIN_BLUR_SHARPNESS -> "Too blurry — tap to focus"
@@ -797,7 +925,7 @@ private fun QualityHudStatusPill(
     Surface(
         modifier = modifier,
         shape = CircleShape,
-        color = Color.Black.copy(alpha = 0.72f),
+        color = Color.Black.copy(alpha = 0.74f),
         border = BorderStroke(1.dp, accent.copy(alpha = 0.65f)),
     ) {
         Row(
@@ -826,6 +954,10 @@ private fun BrandConfirmationChipCard(
     scanMode: ScanMode,
     onConfirm: () -> Unit,
 ) {
+    val saltsDisplay = remember(candidate.genericSalts, candidate.canonicalSaltKeys) {
+        formatSaltComponents(candidate.genericSalts, candidate.canonicalSaltKeys)
+    }
+
     Card(
         onClick = onConfirm,
         modifier = Modifier.fillMaxWidth(),
@@ -857,7 +989,7 @@ private fun BrandConfirmationChipCard(
                     },
                 ) {
                     Text(
-                        text = if (scanMode == ScanMode.CHECK_BEFORE_BUYING) "Preview risk" else "Check safety",
+                        text = if (scanMode == ScanMode.CHECK_BEFORE_BUYING) "Quick check" else "Check safety",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (scanMode == ScanMode.CHECK_BEFORE_BUYING) {
                             PillScopeColors.ModerateAmberDark
@@ -869,12 +1001,14 @@ private fun BrandConfirmationChipCard(
                     )
                 }
             }
-            Text(
-                text = candidate.canonicalSaltKeys.joinToString(" + "),
-                style = MaterialTheme.typography.bodyMedium,
-                color = PillScopeColors.ClinicalTeal,
-                fontWeight = FontWeight.SemiBold,
-            )
+            if (saltsDisplay.isNotBlank()) {
+                Text(
+                    text = saltsDisplay,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PillScopeColors.ClinicalTeal,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             candidate.manufacturer?.let { mfg ->
                 Text(
                     text = mfg,

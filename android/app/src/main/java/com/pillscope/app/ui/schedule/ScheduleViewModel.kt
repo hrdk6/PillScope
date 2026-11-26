@@ -3,6 +3,7 @@ package com.pillscope.app.ui.schedule
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pillscope.app.data.remote.ApiCallError
+import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.dto.ProfileScheduleResponseDto
 import com.pillscope.app.data.repository.CabinetRepository
 import com.pillscope.app.data.repository.DoseAdherenceStore
@@ -47,6 +48,18 @@ class ScheduleViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val activeRecalls: StateFlow<List<ProfileRecallAlertItemDto>> = profileRepository.selectedProfileId
+        .flatMapLatest { profileId ->
+            scheduleAndRecallRepository.observeRecalls(profileId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val activeMedicationCount: StateFlow<Int> = profileRepository.selectedProfileId
+        .flatMapLatest { profileId ->
+            cabinetRepository.observeActiveMedications(profileId).map { it.size }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     val takenDoseKeys: StateFlow<Set<String>> = doseAdherenceStore.takenKeys
 
     private val _uiState = MutableStateFlow(ScheduleUiState())
@@ -74,7 +87,12 @@ class ScheduleViewModel @Inject constructor(
         }
     }
 
+    fun onScreenResumed() {
+        doseAdherenceStore.refreshIfDayChanged()
+    }
+
     fun refreshSchedule() {
+        doseAdherenceStore.refreshIfDayChanged()
         refreshScheduleForProfile(profileRepository.selectedProfileId.value)
     }
 

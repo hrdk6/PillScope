@@ -8,29 +8,43 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -39,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,8 +68,10 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +82,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.pillscope.app.ui.common.formatInteractionSourceLabel
+import com.pillscope.app.ui.common.formatMonographLinkLabel
+import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.LocalPillScopePalette
 import com.pillscope.app.ui.theme.PillScopeColors
 import kotlin.math.roundToInt
@@ -76,13 +96,16 @@ fun CabinetNetworkGraph(
     onSelectNode: (String?) -> Unit,
     onSelectEdge: (String?) -> Unit,
     onMoveNode: (medicationId: String, normX: Float, normY: Float) -> Unit,
+    onResetLayout: (() -> Unit)? = null,
     onInspectMedication: ((medicationId: String) -> Unit)? = null,
+    onCheckCabinetInteractions: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalPillScopePalette.current
     val textMeasurer = rememberTextMeasurer()
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var draggingNodeId by remember { mutableStateOf<String?>(null) }
+    var zoomScale by remember { mutableFloatStateOf(1f) }
 
     val pulseTransition = rememberInfiniteTransition(label = "majorEdgePulse")
     val pulseFraction by pulseTransition.animateFloat(
@@ -95,6 +118,28 @@ fun CabinetNetworkGraph(
         label = "pulseAlpha",
     )
 
+    val interactiveEdges = remember(graphState.edges) {
+        graphState.edges.filter { it.isInteractive }
+            .sortedByDescending { it.severity.rank }
+    }
+
+    val graphSemanticSummary = remember(graphState.nodes, graphState.edges, graphState.pausedMedicationCount) {
+        val majorCount = graphState.edges.count { it.severity == GraphEdgeSeverity.MAJOR }
+        val moderateCount = graphState.edges.count { it.severity == GraphEdgeSeverity.MODERATE }
+        val minorCount = graphState.edges.count { it.severity == GraphEdgeSeverity.MINOR }
+        val unanalyzedCount = graphState.unanalyzedEdgeCount
+        buildString {
+            append("Medication network with ${graphState.nodes.size} active medications. ")
+            if (majorCount > 0) append("$majorCount major interactions. ")
+            if (moderateCount > 0) append("$moderateCount moderate interactions. ")
+            if (minorCount > 0) append("$minorCount minor interactions. ")
+            if (unanalyzedCount > 0) append("$unanalyzedCount pairs not analyzed yet. ")
+            if (graphState.pausedMedicationCount > 0) {
+                append("${graphState.pausedMedicationCount} paused medications hidden.")
+            }
+        }.trim()
+    }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -102,7 +147,7 @@ fun CabinetNetworkGraph(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(380.dp),
+                .height(304.dp),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
             border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
@@ -115,235 +160,371 @@ fun CabinetNetworkGraph(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "Add active medications to visualize pairwise interactions and FDA recalls.",
+                        text = if (graphState.pausedMedicationCount > 0) {
+                            "All ${graphState.pausedMedicationCount} saved medications are paused. Activate medications in List view to inspect pairwise interactions."
+                        } else {
+                            "Add active medications to visualize pairwise interactions and FDA recalls."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = PillScopeColors.InkSecondary,
                     )
                 }
             } else {
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .onSizeChanged { canvasSize = it }
-                        .pointerInput(graphState.nodes, graphState.edges, canvasSize) {
-                            detectTapGestures { offset ->
-                                val w = canvasSize.width.toFloat().coerceAtLeast(1f)
-                                val h = canvasSize.height.toFloat().coerceAtLeast(1f)
-                                val nodeHit = CabinetGraphState.hitTestNode(
-                                    nodes = graphState.nodes,
-                                    tapX = offset.x,
-                                    tapY = offset.y,
-                                    canvasWidth = w,
-                                    canvasHeight = h,
-                                    hitRadiusPx = 52.dp.toPx(),
-                                )
-                                if (nodeHit != null) {
-                                    onSelectNode(nodeHit.medicationId)
-                                } else {
-                                    val edgeHit = CabinetGraphState.hitTestInteractiveEdge(
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .semantics { contentDescription = graphSemanticSummary }
+                            .onSizeChanged { canvasSize = it }
+                            .pointerInput(graphState.nodes, graphState.edges, canvasSize, zoomScale) {
+                                detectTapGestures { offset ->
+                                    val w = canvasSize.width.toFloat().coerceAtLeast(1f)
+                                    val h = canvasSize.height.toFloat().coerceAtLeast(1f)
+                                    val unscaledX = ((offset.x - w / 2f) / zoomScale) + w / 2f
+                                    val unscaledY = ((offset.y - h / 2f) / zoomScale) + h / 2f
+                                    val nodeHit = CabinetGraphState.hitTestNode(
                                         nodes = graphState.nodes,
-                                        edges = graphState.edges,
-                                        tapX = offset.x,
-                                        tapY = offset.y,
+                                        tapX = unscaledX,
+                                        tapY = unscaledY,
                                         canvasWidth = w,
                                         canvasHeight = h,
-                                        hitThresholdPx = 28.dp.toPx(),
+                                        hitRadiusPx = 52.dp.toPx() / zoomScale,
                                     )
-                                    if (edgeHit != null) {
-                                        onSelectEdge(edgeHit.id)
+                                    if (nodeHit != null) {
+                                        onSelectNode(nodeHit.medicationId)
                                     } else {
-                                        onSelectNode(null)
+                                        val edgeHit = CabinetGraphState.hitTestInteractiveEdge(
+                                            nodes = graphState.nodes,
+                                            edges = graphState.edges,
+                                            tapX = unscaledX,
+                                            tapY = unscaledY,
+                                            canvasWidth = w,
+                                            canvasHeight = h,
+                                            hitThresholdPx = 28.dp.toPx() / zoomScale,
+                                        )
+                                        if (edgeHit != null) {
+                                            onSelectEdge(edgeHit.id)
+                                        } else {
+                                            onSelectNode(null)
+                                        }
                                     }
                                 }
                             }
-                        }
-                        .pointerInput(graphState.nodes, canvasSize) {
-                            detectDragGestures(
-                                onDragStart = { startOffset ->
+                            .pointerInput(graphState.nodes, canvasSize, zoomScale) {
+                                // Only intercept drags that begin on a medication node so vertical
+                                // swipes over open canvas pass cleanly to the parent scroll container.
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
                                     val w = canvasSize.width.toFloat().coerceAtLeast(1f)
                                     val h = canvasSize.height.toFloat().coerceAtLeast(1f)
-                                    draggingNodeId = CabinetGraphState.hitTestNode(
+                                    val unscaledX = ((down.position.x - w / 2f) / zoomScale) + w / 2f
+                                    val unscaledY = ((down.position.y - h / 2f) / zoomScale) + h / 2f
+                                    val activeId = CabinetGraphState.hitTestNode(
                                         nodes = graphState.nodes,
-                                        tapX = startOffset.x,
-                                        tapY = startOffset.y,
+                                        tapX = unscaledX,
+                                        tapY = unscaledY,
                                         canvasWidth = w,
                                         canvasHeight = h,
-                                        hitRadiusPx = 54.dp.toPx(),
-                                    )?.medicationId
-                                },
-                                onDragEnd = { draggingNodeId = null },
-                                onDragCancel = { draggingNodeId = null },
-                                onDrag = { change, dragAmount ->
-                                    val activeId = draggingNodeId ?: return@detectDragGestures
-                                    val node = graphState.nodes.firstOrNull { it.medicationId == activeId }
-                                        ?: return@detectDragGestures
-                                    val w = canvasSize.width.toFloat().coerceAtLeast(1f)
-                                    val h = canvasSize.height.toFloat().coerceAtLeast(1f)
-                                    change.consume()
-                                    val nextX = node.normalizedX + (dragAmount.x / w)
-                                    val nextY = node.normalizedY + (dragAmount.y / h)
-                                    onMoveNode(activeId, nextX, nextY)
-                                },
+                                        hitRadiusPx = 54.dp.toPx() / zoomScale,
+                                    )?.medicationId ?: return@awaitEachGesture
+
+                                    draggingNodeId = activeId
+                                    try {
+                                        var currentX = graphState.nodes
+                                            .firstOrNull { it.medicationId == activeId }?.normalizedX ?: return@awaitEachGesture
+                                        var currentY = graphState.nodes
+                                            .firstOrNull { it.medicationId == activeId }?.normalizedY ?: return@awaitEachGesture
+                                        drag(down.id) { change ->
+                                            val delta = change.positionChange()
+                                            if (delta != Offset.Zero) {
+                                                change.consume()
+                                                currentX = (currentX + (delta.x / (w * zoomScale))).coerceIn(0.12f, 0.88f)
+                                                currentY = (currentY + (delta.y / (h * zoomScale))).coerceIn(0.12f, 0.88f)
+                                                onMoveNode(activeId, currentX, currentY)
+                                            }
+                                        }
+                                    } finally {
+                                        draggingNodeId = null
+                                    }
+                                }
+                            },
+                    ) {
+                        val nodeMap = graphState.nodes.associateBy { it.medicationId }
+                        fun project(normX: Float, normY: Float): Offset {
+                            val rawX = normX * size.width
+                            val rawY = normY * size.height
+                            return Offset(
+                                x = (rawX - size.width / 2f) * zoomScale + size.width / 2f,
+                                y = (rawY - size.height / 2f) * zoomScale + size.height / 2f,
                             )
-                        },
-                ) {
-                    val nodeMap = graphState.nodes.associateBy { it.medicationId }
-
-                    for (edge in graphState.edges) {
-                        val nA = nodeMap[edge.sourceId] ?: continue
-                        val nB = nodeMap[edge.targetId] ?: continue
-                        val ax = nA.normalizedX * size.width
-                        val ay = nA.normalizedY * size.height
-                        val bx = nB.normalizedX * size.width
-                        val by = nB.normalizedY * size.height
-                        val (cx, cy) = CabinetGraphState.controlPoint(ax, ay, bx, by)
-
-                        val path = Path().apply {
-                            moveTo(ax, ay)
-                            quadraticTo(cx, cy, bx, by)
                         }
-                        val highlighted = graphState.isEdgeHighlighted(edge)
-                        val alphaScale = if (highlighted) 1f else 0.18f
 
-                        when (edge.severity) {
-                            GraphEdgeSeverity.MAJOR -> {
-                                drawPath(
-                                    path = path,
-                                    color = palette.criticalCrimson.copy(
-                                        alpha = 0.25f * pulseFraction * alphaScale,
-                                    ),
-                                    style = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round),
-                                )
-                                drawPath(
-                                    path = path,
-                                    color = palette.criticalCrimson.copy(
-                                        alpha = pulseFraction * alphaScale,
-                                    ),
-                                    style = Stroke(width = 3.8.dp.toPx(), cap = StrokeCap.Round),
-                                )
+                        for (edge in graphState.edges) {
+                            val nA = nodeMap[edge.sourceId] ?: continue
+                            val nB = nodeMap[edge.targetId] ?: continue
+                            val pA = project(nA.normalizedX, nA.normalizedY)
+                            val pB = project(nB.normalizedX, nB.normalizedY)
+                            val (cx, cy) = CabinetGraphState.controlPoint(pA.x, pA.y, pB.x, pB.y)
+
+                            val path = Path().apply {
+                                moveTo(pA.x, pA.y)
+                                quadraticTo(cx, cy, pB.x, pB.y)
+                            }
+                            val highlighted = graphState.isEdgeHighlighted(edge)
+                            val alphaScale = if (highlighted) 1f else 0.18f
+
+                            when (edge.severity) {
+                                GraphEdgeSeverity.MAJOR -> {
+                                    drawPath(
+                                        path = path,
+                                        color = palette.criticalCrimson.copy(
+                                            alpha = 0.25f * pulseFraction * alphaScale,
+                                        ),
+                                        style = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round),
+                                    )
+                                    drawPath(
+                                        path = path,
+                                        color = palette.criticalCrimson.copy(
+                                            alpha = pulseFraction * alphaScale,
+                                        ),
+                                        style = Stroke(width = 3.8.dp.toPx(), cap = StrokeCap.Round),
+                                    )
+                                }
+
+                                GraphEdgeSeverity.MODERATE -> {
+                                    drawPath(
+                                        path = path,
+                                        color = palette.moderateAmber.copy(alpha = 0.9f * alphaScale),
+                                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                                    )
+                                }
+
+                                GraphEdgeSeverity.MINOR -> {
+                                    drawPath(
+                                        path = path,
+                                        color = palette.minorBlue.copy(alpha = 0.82f * alphaScale),
+                                        style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
+                                    )
+                                }
+
+                                GraphEdgeSeverity.SAFE -> {
+                                    drawPath(
+                                        path = path,
+                                        color = palette.safeEmerald.copy(alpha = 0.55f * alphaScale),
+                                        style = Stroke(
+                                            width = 2.dp.toPx(),
+                                            cap = StrokeCap.Round,
+                                        ),
+                                    )
+                                }
+
+                                GraphEdgeSeverity.UNANALYZED -> {
+                                    drawPath(
+                                        path = path,
+                                        color = palette.inkSecondary.copy(alpha = 0.38f * alphaScale),
+                                        style = Stroke(
+                                            width = 1.6.dp.toPx(),
+                                            cap = StrokeCap.Round,
+                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+
+                        val pillWidth = if (graphState.nodes.size >= 7) 96.dp.toPx() else 112.dp.toPx()
+                        val pillHeight = 44.dp.toPx()
+                        val cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f)
+
+                        for (node in graphState.nodes) {
+                            val center = project(node.normalizedX, node.normalizedY)
+                            val cx = center.x
+                            val cy = center.y
+                            val topLeft = Offset(cx - pillWidth / 2f, cy - pillHeight / 2f)
+                            val isSelected = graphState.selectedNodeId == node.medicationId
+                            val fillColor = if (isSelected) {
+                                palette.clinicalTealContainer
+                            } else {
+                                palette.cardSurface
+                            }
+                            val borderColor = when {
+                                isSelected -> palette.clinicalTeal
+                                node.hasActiveRecall -> palette.criticalCrimson
+                                else -> palette.slateBorder
                             }
 
-                            GraphEdgeSeverity.MODERATE -> {
-                                drawPath(
-                                    path = path,
-                                    color = palette.moderateAmber.copy(alpha = 0.9f * alphaScale),
-                                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
-                                )
-                            }
+                            drawRoundRect(
+                                color = Color.Black.copy(alpha = 0.08f),
+                                topLeft = topLeft + Offset(0f, 3.dp.toPx()),
+                                size = Size(pillWidth, pillHeight),
+                                cornerRadius = cornerRadius,
+                            )
+                            drawRoundRect(
+                                color = fillColor,
+                                topLeft = topLeft,
+                                size = Size(pillWidth, pillHeight),
+                                cornerRadius = cornerRadius,
+                            )
+                            drawRoundRect(
+                                color = borderColor,
+                                topLeft = topLeft,
+                                size = Size(pillWidth, pillHeight),
+                                cornerRadius = cornerRadius,
+                                style = Stroke(width = if (isSelected) 2.5.dp.toPx() else 1.4.dp.toPx()),
+                            )
 
-                            GraphEdgeSeverity.MINOR -> {
-                                drawPath(
-                                    path = path,
-                                    color = palette.minorBlue.copy(alpha = 0.82f * alphaScale),
-                                    style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round),
-                                )
-                            }
+                            val maxTextW = (pillWidth - 18.dp.toPx()).toInt().coerceAtLeast(24)
+                            val titleLayout = textMeasurer.measure(
+                                text = node.displayName,
+                                style = TextStyle(
+                                    color = palette.inkPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                constraints = Constraints(maxWidth = maxTextW),
+                            )
+                            val saltText = node.canonicalSaltKeys.firstOrNull().orEmpty()
+                            val saltLayout = textMeasurer.measure(
+                                text = saltText,
+                                style = TextStyle(
+                                    color = palette.clinicalTeal,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                constraints = Constraints(maxWidth = maxTextW),
+                            )
 
-                            GraphEdgeSeverity.SAFE -> {
-                                drawPath(
-                                    path = path,
-                                    color = palette.inkSecondary.copy(alpha = 0.35f * alphaScale),
-                                    style = Stroke(
-                                        width = 1.6.dp.toPx(),
-                                        cap = StrokeCap.Round,
-                                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f),
-                                    ),
+                            val totalTextH = titleLayout.size.height + saltLayout.size.height
+                            val textStartY = cy - totalTextH / 2f
+                            drawText(
+                                textLayoutResult = titleLayout,
+                                topLeft = Offset(cx - titleLayout.size.width / 2f, textStartY),
+                            )
+                            drawText(
+                                textLayoutResult = saltLayout,
+                                topLeft = Offset(
+                                    cx - saltLayout.size.width / 2f,
+                                    textStartY + titleLayout.size.height,
+                                ),
+                            )
+
+                            if (node.hasActiveRecall) {
+                                val dotCenter = Offset(topLeft.x + pillWidth - 8.dp.toPx(), topLeft.y + 6.dp.toPx())
+                                drawCircle(
+                                    color = palette.criticalCrimson.copy(alpha = 0.30f * pulseFraction),
+                                    radius = 9.dp.toPx(),
+                                    center = dotCenter,
+                                )
+                                drawCircle(
+                                    color = palette.criticalCrimson,
+                                    radius = 5.dp.toPx(),
+                                    center = dotCenter,
                                 )
                             }
                         }
                     }
 
-                    val pillWidth = if (graphState.nodes.size >= 7) 96.dp.toPx() else 112.dp.toPx()
-                    val pillHeight = 44.dp.toPx()
-                    val cornerRadius = CornerRadius(pillHeight / 2f, pillHeight / 2f)
-
-                    for (node in graphState.nodes) {
-                        val cx = node.normalizedX * size.width
-                        val cy = node.normalizedY * size.height
-                        val topLeft = Offset(cx - pillWidth / 2f, cy - pillHeight / 2f)
-                        val isSelected = graphState.selectedNodeId == node.medicationId
-                        val fillColor = if (isSelected) {
-                            palette.clinicalTealContainer
-                        } else {
-                            palette.cardSurface
+                    // Compact zoom & reset controls for crowded cabinets (6+ drugs)
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = PillScopeColors.SlateSurface.copy(alpha = 0.92f),
+                        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { zoomScale = (zoomScale - 0.25f).coerceAtLeast(0.75f) },
+                                enabled = zoomScale > 0.76f,
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Remove,
+                                    contentDescription = "Zoom out graph",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = { zoomScale = (zoomScale + 0.25f).coerceAtMost(2.0f) },
+                                enabled = zoomScale < 1.99f,
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Zoom in graph",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    zoomScale = 1f
+                                    onResetLayout?.invoke()
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = "Reset graph layout",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
                         }
-                        val borderColor = when {
-                            isSelected -> palette.clinicalTeal
-                            node.hasActiveRecall -> palette.criticalCrimson
-                            else -> palette.slateBorder
-                        }
+                    }
+                }
+            }
+        }
 
-                        drawRoundRect(
-                            color = Color.Black.copy(alpha = 0.08f),
-                            topLeft = topLeft + Offset(0f, 3.dp.toPx()),
-                            size = Size(pillWidth, pillHeight),
-                            cornerRadius = cornerRadius,
-                        )
-                        drawRoundRect(
-                            color = fillColor,
-                            topLeft = topLeft,
-                            size = Size(pillWidth, pillHeight),
-                            cornerRadius = cornerRadius,
-                        )
-                        drawRoundRect(
-                            color = borderColor,
-                            topLeft = topLeft,
-                            size = Size(pillWidth, pillHeight),
-                            cornerRadius = cornerRadius,
-                            style = Stroke(width = if (isSelected) 2.5.dp.toPx() else 1.4.dp.toPx()),
-                        )
+        if (graphState.pausedMedicationCount > 0) {
+            Surface(
+                shape = CircleShape,
+                color = PillScopeColors.SurfaceTint,
+                border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+            ) {
+                val count = graphState.pausedMedicationCount
+                Text(
+                    text = "$count paused ${if (count == 1) "medication" else "medications"} hidden from network",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PillScopeColors.InkSecondary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                )
+            }
+        }
 
-                        val maxTextW = (pillWidth - 18.dp.toPx()).toInt().coerceAtLeast(24)
-                        val titleLayout = textMeasurer.measure(
-                            text = node.displayName,
-                            style = TextStyle(
-                                color = palette.inkPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            constraints = Constraints(maxWidth = maxTextW),
-                        )
-                        val saltText = node.canonicalSaltKeys.firstOrNull().orEmpty()
-                        val saltLayout = textMeasurer.measure(
-                            text = saltText,
-                            style = TextStyle(
-                                color = palette.clinicalTeal,
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Medium,
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            constraints = Constraints(maxWidth = maxTextW),
-                        )
-
-                        val totalTextH = titleLayout.size.height + saltLayout.size.height
-                        val textStartY = cy - totalTextH / 2f
-                        drawText(
-                            textLayoutResult = titleLayout,
-                            topLeft = Offset(cx - titleLayout.size.width / 2f, textStartY),
-                        )
-                        drawText(
-                            textLayoutResult = saltLayout,
-                            topLeft = Offset(
-                                cx - saltLayout.size.width / 2f,
-                                textStartY + titleLayout.size.height,
-                            ),
-                        )
-
-                        if (node.hasActiveRecall) {
-                            val dotCenter = Offset(topLeft.x + pillWidth - 8.dp.toPx(), topLeft.y + 6.dp.toPx())
-                            drawCircle(
-                                color = palette.criticalCrimson.copy(alpha = 0.30f * pulseFraction),
-                                radius = 9.dp.toPx(),
-                                center = dotCenter,
+        if (graphState.unanalyzedEdgeCount > 0) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = PillScopeColors.SurfaceTint,
+                border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    val count = graphState.unanalyzedEdgeCount
+                    Text(
+                        text = "$count medication ${if (count == 1) "pair has" else "pairs have"} not been checked yet (dashed gray lines).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PillScopeColors.InkPrimary,
+                    )
+                    if (onCheckCabinetInteractions != null) {
+                        Button(
+                            onClick = onCheckCabinetInteractions,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.HealthAndSafety,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
                             )
-                            drawCircle(
-                                color = palette.criticalCrimson,
-                                radius = 5.dp.toPx(),
-                                center = dotCenter,
-                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Check cabinet interactions")
                         }
                     }
                 }
@@ -360,8 +541,9 @@ fun CabinetNetworkGraph(
                 shape = RoundedCornerShape(14.dp),
             ) {
                 Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "  View details for ${selectedNode.displayName}",
+                    text = "View details for ${selectedNode.displayName}",
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
@@ -375,12 +557,102 @@ fun CabinetNetworkGraph(
             GraphLegendBadge(color = PillScopeColors.CriticalCrimson, label = "Major")
             GraphLegendBadge(color = PillScopeColors.ModerateAmber, label = "Moderate")
             GraphLegendBadge(color = PillScopeColors.MinorBlue, label = "Minor")
-            GraphLegendBadge(color = PillScopeColors.InkSecondary.copy(alpha = 0.5f), label = "Safe")
+            GraphLegendBadge(color = PillScopeColors.SafeEmerald, label = "Checked safe")
+            GraphLegendBadge(color = PillScopeColors.InkSecondary.copy(alpha = 0.55f), label = "Not analyzed")
+        }
+
+        // Accessible interactive chips for TalkBack & quick inspection of nodes/flagged edges
+        if (graphState.nodes.isNotEmpty()) {
             Text(
-                text = "Tap colored curve for details",
-                style = MaterialTheme.typography.labelSmall,
+                text = "Tap a medication or flagged pair to inspect",
+                style = MaterialTheme.typography.labelMedium,
                 color = PillScopeColors.InkSecondary,
             )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                graphState.nodes.forEach { node ->
+                    val selected = node.medicationId == graphState.selectedNodeId
+                    Surface(
+                        onClick = { onSelectNode(node.medicationId) },
+                        modifier = Modifier.heightIn(min = 38.dp),
+                        shape = CircleShape,
+                        color = if (selected) PillScopeColors.ClinicalTealContainer else PillScopeColors.CardSurface,
+                        border = BorderStroke(
+                            width = if (selected) 1.5.dp else 1.dp,
+                            color = when {
+                                selected -> PillScopeColors.ClinicalTeal
+                                node.hasActiveRecall -> PillScopeColors.CriticalCrimson
+                                else -> PillScopeColors.SlateBorder
+                            },
+                        ),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        ) {
+                            Text(
+                                text = if (node.hasActiveRecall) "${node.displayName} (Recall)" else node.displayName,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) PillScopeColors.ClinicalTealDeep else PillScopeColors.InkPrimary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (interactiveEdges.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Flagged interactions (${interactiveEdges.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = PillScopeColors.InkPrimary,
+                )
+                interactiveEdges.forEach { edge ->
+                    val (bg, fg) = edgeSeverityColors(edge.severity)
+                    Surface(
+                        onClick = { onSelectEdge(edge.id) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = PillScopeColors.CardSurface,
+                        border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${edge.sourceName} + ${edge.targetName}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = PillScopeColors.InkPrimary,
+                                )
+                                Text(
+                                    text = "${edge.saltA} + ${edge.saltB}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PillScopeColors.ClinicalTeal,
+                                )
+                            }
+                            Surface(shape = CircleShape, color = bg) {
+                                Text(
+                                    text = edge.severity.name.lowercase().replaceFirstChar { it.uppercase() },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = fg,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -394,11 +666,21 @@ fun CabinetNetworkGraph(
                 edge = edge,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
+                    .padding(bottom = 24.dp),
             )
         }
     }
+}
+
+@Composable
+private fun edgeSeverityColors(severity: GraphEdgeSeverity): Pair<Color, Color> = when (severity) {
+    GraphEdgeSeverity.MAJOR -> PillScopeColors.CriticalCrimsonSurface to PillScopeColors.CriticalCrimsonDark
+    GraphEdgeSeverity.MODERATE -> PillScopeColors.ModerateAmberSurface to PillScopeColors.ModerateAmberDark
+    GraphEdgeSeverity.MINOR -> PillScopeColors.MinorBlueSurface to PillScopeColors.MinorBlueDark
+    GraphEdgeSeverity.SAFE -> PillScopeColors.SafeEmeraldSurface to PillScopeColors.SafeEmeraldDark
+    GraphEdgeSeverity.UNANALYZED -> PillScopeColors.SurfaceTint to PillScopeColors.InkSecondary
 }
 
 @Composable
@@ -428,22 +710,18 @@ private fun EdgeInteractionDetailSheet(
     edge: GraphEdge,
     modifier: Modifier = Modifier,
 ) {
-    val uriHandler = LocalUriHandler.current
+    val openUri = rememberSafeUriOpener()
     val accent = when (edge.severity) {
         GraphEdgeSeverity.MAJOR -> PillScopeColors.CriticalCrimson
         GraphEdgeSeverity.MODERATE -> PillScopeColors.ModerateAmber
         GraphEdgeSeverity.MINOR -> PillScopeColors.MinorBlue
         GraphEdgeSeverity.SAFE -> PillScopeColors.SafeEmerald
+        GraphEdgeSeverity.UNANALYZED -> PillScopeColors.InkSecondary
     }
-    val surfaceColor = when (edge.severity) {
-        GraphEdgeSeverity.MAJOR -> PillScopeColors.CriticalCrimsonSurface
-        GraphEdgeSeverity.MODERATE -> PillScopeColors.ModerateAmberSurface
-        GraphEdgeSeverity.MINOR -> PillScopeColors.MinorBlueSurface
-        GraphEdgeSeverity.SAFE -> PillScopeColors.SafeEmeraldSurface
-    }
+    val (surfaceColor, badgeTextColor) = edgeSeverityColors(edge.severity)
 
     Column(
-        modifier = modifier,
+        modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -468,7 +746,7 @@ private fun EdgeInteractionDetailSheet(
                 Text(
                     text = edge.severity.name.lowercase().replaceFirstChar { it.uppercase() },
                     style = MaterialTheme.typography.labelMedium,
-                    color = accent,
+                    color = badgeTextColor,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                 )
             }
@@ -486,12 +764,12 @@ private fun EdgeInteractionDetailSheet(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 val probText = edge.mlMajorProbability?.let { prob ->
-                    "RDKit ML major probability: ${(prob * 100).roundToInt()}%"
-                } ?: "Curated deterministic rule (${edge.source})"
+                    "Estimated major interaction likelihood: ${(prob * 100).roundToInt()}%"
+                } ?: formatInteractionSourceLabel(edge.source)
                 Text(
                     text = probText,
                     style = MaterialTheme.typography.labelMedium,
-                    color = accent,
+                    color = PillScopeColors.InkPrimary,
                 )
                 edge.mlMajorProbability?.let { prob ->
                     LinearProgressIndicator(
@@ -507,7 +785,7 @@ private fun EdgeInteractionDetailSheet(
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = "Interaction mechanism",
+                text = "How they interact",
                 style = MaterialTheme.typography.titleSmall,
                 color = PillScopeColors.InkPrimary,
             )
@@ -535,7 +813,7 @@ private fun EdgeInteractionDetailSheet(
             HorizontalDivider(color = PillScopeColors.SlateBorder)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "Verbatim openFDA monograph (${citation.sectionTitle})",
+                    text = "Official FDA drug label (${citation.sectionTitle.lowercase().replace("_", " ").replaceFirstChar { it.uppercase() }})",
                     style = MaterialTheme.typography.titleSmall,
                     color = PillScopeColors.ClinicalTeal,
                 )
@@ -546,29 +824,28 @@ private fun EdgeInteractionDetailSheet(
                 )
                 val isWebUrl = citation.sourceUrl.startsWith("https://") ||
                     citation.sourceUrl.startsWith("http://")
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = if (isWebUrl) {
-                        Modifier.clickable { runCatching { uriHandler.openUri(citation.sourceUrl) } }
-                    } else {
-                        Modifier
-                    },
-                ) {
-                    Text(
-                        text = citation.sourceUrl,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            textDecoration = if (isWebUrl) TextDecoration.Underline else TextDecoration.None,
-                        ),
-                        color = PillScopeColors.MinorBlue,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (isWebUrl) {
+                if (isWebUrl) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { openUri(citation.sourceUrl) }
+                            .padding(vertical = 8.dp),
+                    ) {
+                        Text(
+                            text = formatMonographLinkLabel(citation.sourceUrl),
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                textDecoration = TextDecoration.Underline,
+                            ),
+                            color = PillScopeColors.MinorBlue,
+                        )
                         Icon(
-                            imageVector = Icons.Default.OpenInNew,
-                            contentDescription = "Open source link",
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Open official source",
                             tint = PillScopeColors.MinorBlue,
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }

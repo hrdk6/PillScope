@@ -39,6 +39,8 @@ data class ScanUiState(
     val resolvedCandidates: List<BrandCandidateDto> = emptyList(),
     val isResolving: Boolean = false,
     val isCameraFrozen: Boolean = false,
+    val isForcedCaptureHeld: Boolean = false,
+    val isSearchFocused: Boolean = false,
     val resolveError: String? = null,
     val frameWidth: Int = 0,
     val frameHeight: Int = 0,
@@ -58,9 +60,15 @@ class ScanViewModel @Inject constructor(
 
     private var resolveJob: Job? = null
     private var lastResolvedText: String = ""
+    @Volatile
+    private var pendingForcedSingleFrame: Boolean = false
 
     fun onScanModeChange(mode: ScanMode) {
         _uiState.update { it.copy(scanMode = mode) }
+    }
+
+    fun onSearchFocusChanged(focused: Boolean) {
+        _uiState.update { it.copy(isSearchFocused = focused) }
     }
 
     fun onManualQueryChange(query: String) {
@@ -74,6 +82,7 @@ class ScanViewModel @Inject constructor(
                 rawOcrText = if (clearedOcr) "" else state.rawOcrText,
                 localSaltChips = if (clearedOcr) emptyList() else state.localSaltChips,
                 ocrTextBlocks = if (clearedOcr) emptyList() else state.ocrTextBlocks,
+                isForcedCaptureHeld = if (clearedOcr) false else state.isForcedCaptureHeld,
                 resolveError = null,
             )
         }
@@ -88,12 +97,29 @@ class ScanViewModel @Inject constructor(
     fun clearScanState() {
         resolveJob?.cancel()
         lastResolvedText = ""
+        pendingForcedSingleFrame = false
+        forceNextOcr.set(false)
         _uiState.update { state ->
             state.copy(
                 manualQuery = "",
                 rawOcrText = "",
                 localSaltChips = emptyList(),
                 ocrTextBlocks = emptyList(),
+                resolvedCandidates = emptyList(),
+                isResolving = false,
+                isForcedCaptureHeld = false,
+                isCameraFrozen = false,
+                resolveError = null,
+            )
+        }
+    }
+
+    fun clearManualSearchOnly() {
+        resolveJob?.cancel()
+        lastResolvedText = ""
+        _uiState.update { state ->
+            state.copy(
+                manualQuery = "",
                 resolvedCandidates = emptyList(),
                 isResolving = false,
                 resolveError = null,
@@ -112,46 +138,79 @@ class ScanViewModel @Inject constructor(
     }
 
     fun requestForcedOcrCapture() {
+        pendingForcedSingleFrame = true
         forceNextOcr.set(true)
-        _uiState.update { it.copy(isCameraFrozen = false, resolveError = null) }
+        _uiState.update { it.copy(resolveError = null) }
     }
 
     fun onCameraPipelineResult(result: CameraPipelineResult) {
-        if (_uiState.value.isCameraFrozen) return
-        // Do not overwrite an active manual search with background camera frames.
-        val hasManualInput = _uiState.value.manualQuery.isNotBlank()
+        val currentState = _uiState.value
+        val isForcedResult = result.wasForced
+        if (currentState.isCameraFrozen && !isForcedResult && !pendingForcedSingleFrame) return
+
+        // While the user is typing or focused in manual search, keep camera frames from overwriting results.
+        val suppressOcrForSearch = currentState.manualQuery.isNotBlank() || currentState.isSearchFocused
+        if (isForcedResult) {
+            pendingForcedSingleFrame = false
+        }
+
+        val forcedFoundContent = isForcedResult &&
+            (result.rawOcrText.isNotBlank() || result.localSaltChips.isNotEmpty() || result.ocrTextBlocks.isNotEmpty())
+        val shouldFreezeAfterForce = isForcedResult && (forcedFoundContent || currentState.isCameraFrozen)
+
         _uiState.update { state ->
             state.copy(
                 latestQuality = result.quality,
-                ocrTextBlocks = if (result.quality.isAcceptable) result.ocrTextBlocks else emptyList(),
-                rawOcrText = if (!hasManualInput && result.rawOcrText.isNotBlank()) {
+                ocrTextBlocks = when {
+                    suppressOcrForSearch -> emptyList()
+                    result.quality.isAcceptable || isForcedResult -> result.ocrTextBlocks
+                    state.isForcedCaptureHeld -> state.ocrTextBlocks
+                    else -> emptyList()
+                },
+                rawOcrText = if (!suppressOcrForSearch && result.rawOcrText.isNotBlank()) {
                     result.rawOcrText
                 } else {
                     state.rawOcrText
                 },
-                localSaltChips = if (!hasManualInput && result.localSaltChips.isNotEmpty()) {
+                localSaltChips = if (!suppressOcrForSearch && result.localSaltChips.isNotEmpty()) {
                     result.localSaltChips
                 } else {
                     state.localSaltChips
+                },
+                isCameraFrozen = if (shouldFreezeAfterForce) true else state.isCameraFrozen,
+                isForcedCaptureHeld = if (forcedFoundContent) true else state.isForcedCaptureHeld,
+                resolveError = if (isForcedResult && !forcedFoundContent && !suppressOcrForSearch) {
+                    "No readable text detected in that frame. Hold closer to the medicine label or search below."
+                } else {
+                    state.resolveError
                 },
                 frameWidth = if (result.frameWidth > 0) result.frameWidth else state.frameWidth,
                 frameHeight = if (result.frameHeight > 0) result.frameHeight else state.frameHeight,
             )
         }
 
-        if (hasManualInput) return
+        if (suppressOcrForSearch) return
 
         val queryGuess = result.primaryBrandGuess.ifBlank {
             result.localSaltChips.joinToString(" ") { it.canonicalSalt }
         }
-        if (result.quality.isAcceptable && queryGuess.length >= 3 && queryGuess != lastResolvedText) {
+        if ((result.quality.isAcceptable || isForcedResult) &&
+            queryGuess.length >= 3 &&
+            (queryGuess != lastResolvedText || isForcedResult)
+        ) {
             lastResolvedText = queryGuess
             triggerDebouncedResolve(query = queryGuess, rawOcrText = result.rawOcrText)
         }
     }
 
     fun toggleCameraFreeze() {
-        _uiState.update { it.copy(isCameraFrozen = !it.isCameraFrozen) }
+        _uiState.update { state ->
+            val nextFrozen = !state.isCameraFrozen
+            state.copy(
+                isCameraFrozen = nextFrozen,
+                isForcedCaptureHeld = if (!nextFrozen) false else state.isForcedCaptureHeld,
+            )
+        }
     }
 
     private fun activeServerProfileId(): String? {

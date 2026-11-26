@@ -95,7 +95,7 @@ object OnDeviceSaltChipExtractor {
         RegexOption.IGNORE_CASE,
     )
 
-    private fun normalizeCanonicalSalt(rawSalt: String): String {
+    fun normalizeCanonicalSalt(rawSalt: String): String {
         val cleaned = nonAlnumRegex.replace(rawSalt.lowercase(), " ").trim().replace(Regex("""\s+"""), " ")
         if (cleaned.isEmpty()) return ""
         saltSynonyms[cleaned]?.let { return it }

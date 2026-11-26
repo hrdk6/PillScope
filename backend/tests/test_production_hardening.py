@@ -148,10 +148,12 @@ async def test_auth_logout_refresh_rotation_delete_account_and_legal_pages(
     privacy_resp = await api_client.get("/privacy")
     assert privacy_resp.status_code == 200
     assert "PillScope" in privacy_resp.text
+    assert "prefers-color-scheme: dark" in privacy_resp.text
 
     deletion_resp = await api_client.get("/account-deletion")
     assert deletion_resp.status_code == 200
     assert "DELETE /api/v1/auth/me" in deletion_resp.text
+    assert "prefers-color-scheme: dark" in deletion_resp.text
 
     reg = await api_client.post(
         "/api/v1/auth/register",
@@ -262,6 +264,21 @@ async def test_cabinet_reactivation_safety_and_therapeutic_duplication(
     assert body["safety_banner_locked"] is True
     assert any(d["canonical_salt"] == "amoxicillin" for d in body["duplicate_salts"])
     assert any(a["canonical_salt"] == "amoxicillin" for a in body["allergy_alerts"])
+
+    # Updating generic_salts re-normalizes canonical_salt_keys and clears stale conflicts
+    edited_salts = await api_client.patch(
+        f"/api/v1/cabinet/medications/{m1_id}",
+        headers=headers,
+        json={
+            "display_name": "Dolo 650",
+            "generic_salts": [{"canonical_salt": "paracetamol", "strength_mg": 650}],
+        },
+    )
+    assert edited_salts.status_code == 200
+    edited_body = edited_salts.json()
+    assert edited_body["canonical_salt_keys"] == ["acetaminophen"]
+    assert edited_body["allergy_alerts"] == []
+    assert edited_body["duplicate_salts"] == []
 
     # Same-class NSAID therapeutic duplication
     alerts = await detect_deterministic_ddi_alerts(
@@ -512,18 +529,20 @@ async def test_scan_log_persists_active_recalls_and_web_deletion_form(
     assert len(items[0]["active_recalls"]) == 1
     assert items[0]["active_recalls"][0]["recall_number"] == "D-HIST-2026"
 
-    # Web deletion form: reject bad confirmation and bad password, then delete account cleanly
+    # Web deletion form: reject bad confirmation and bad password while preserving typed email, then delete cleanly
     bad_confirm = await api_client.post(
         "/account-deletion",
         data={"email": "webdel@example.com", "password": "StrongPassword123!", "confirm": "NO"},
     )
     assert bad_confirm.status_code == 400
+    assert 'value="webdel@example.com"' in bad_confirm.text
 
     bad_pw = await api_client.post(
         "/account-deletion",
         data={"email": "webdel@example.com", "password": "WrongPassword!", "confirm": "DELETE"},
     )
     assert bad_pw.status_code == 401
+    assert 'value="webdel@example.com"' in bad_pw.text
 
     ok_del = await api_client.post(
         "/account-deletion",

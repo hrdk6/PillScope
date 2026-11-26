@@ -35,10 +35,13 @@ data class PillScopePalette(
     val criticalCrimson: Color,
     val criticalCrimsonDark: Color,
     val criticalCrimsonSurface: Color,
+    val criticalBannerContainer: Color,
+    val onCriticalBanner: Color,
     val moderateAmber: Color,
     val moderateAmberDark: Color,
     val moderateAmberSurface: Color,
     val minorBlue: Color,
+    val minorBlueDark: Color,
     val minorBlueSurface: Color,
     val safeEmerald: Color,
     val safeEmeraldDark: Color,
@@ -62,10 +65,13 @@ private val LightPalette = PillScopePalette(
     criticalCrimson = Color(0xFFC61D2C),
     criticalCrimsonDark = Color(0xFF7A0D18),
     criticalCrimsonSurface = Color(0xFFFDECEE),
+    criticalBannerContainer = Color(0xFFC61D2C),
+    onCriticalBanner = Color.White,
     moderateAmber = Color(0xFFC46A08),
     moderateAmberDark = Color(0xFF7C3F00),
     moderateAmberSurface = Color(0xFFFEF4E4),
     minorBlue = Color(0xFF1D4ED8),
+    minorBlueDark = Color(0xFF1E3A8A),
     minorBlueSurface = Color(0xFFEFF6FF),
     safeEmerald = Color(0xFF127A4B),
     safeEmeraldDark = Color(0xFF0A4B2E),
@@ -89,10 +95,13 @@ private val DarkPalette = PillScopePalette(
     criticalCrimson = Color(0xFFEF4444),
     criticalCrimsonDark = Color(0xFFFECACA),
     criticalCrimsonSurface = Color(0xFF3F151A),
+    criticalBannerContainer = Color(0xFFB41B29),
+    onCriticalBanner = Color.White,
     moderateAmber = Color(0xFFF59E0B),
     moderateAmberDark = Color(0xFFFDE68A),
     moderateAmberSurface = Color(0xFF3B280D),
     minorBlue = Color(0xFF60A5FA),
+    minorBlueDark = Color(0xFFBFDBFE),
     minorBlueSurface = Color(0xFF172554),
     safeEmerald = Color(0xFF34D399),
     safeEmeraldDark = Color(0xFFA7F3D0),
@@ -135,6 +144,10 @@ object PillScopeColors {
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.criticalCrimsonDark
     val CriticalCrimsonSurface: Color
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.criticalCrimsonSurface
+    val CriticalBannerContainer: Color
+        @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.criticalBannerContainer
+    val OnCriticalBanner: Color
+        @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.onCriticalBanner
 
     val ModerateAmber: Color
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.moderateAmber
@@ -145,6 +158,8 @@ object PillScopeColors {
 
     val MinorBlue: Color
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.minorBlue
+    val MinorBlueDark: Color
+        @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.minorBlueDark
     val MinorBlueSurface: Color
         @Composable @ReadOnlyComposable get() = LocalPillScopePalette.current.minorBlueSurface
 

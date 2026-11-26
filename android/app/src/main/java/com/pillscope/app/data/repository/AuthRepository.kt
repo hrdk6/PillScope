@@ -197,9 +197,32 @@ class AuthRepository @Inject constructor(
         )
     }
 
+    suspend fun enterOfflineGuestMode() {
+        profileRepository.ensureLocalDefaultProfile()
+        _sessionState.value = AuthSessionState.Authenticated(
+            user = UserResponseDto(
+                id = OFFLINE_GUEST_USER_ID,
+                email = "",
+                displayName = "Offline guest",
+                isActive = true,
+            ),
+            offlineResumed = true,
+        )
+    }
+
+    fun exitOfflineGuestModeToSignIn() {
+        _sessionState.value = AuthSessionState.Unauthenticated(
+            "Sign in or create an account to sync your offline cabinet and run full interaction checks.",
+        )
+    }
+
     suspend fun handleSessionExpired(reason: String) {
         tokenProvider.clearTokens()
         _sessionState.value = AuthSessionState.Unauthenticated(reason)
+    }
+
+    companion object {
+        const val OFFLINE_GUEST_USER_ID = "offline-guest"
     }
 
     private suspend fun wipeLocalDataIfDifferentUser(newUserId: String) {

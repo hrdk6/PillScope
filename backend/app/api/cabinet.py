@@ -266,9 +266,22 @@ async def update_medication(
         )
 
     was_active = medication.is_active
+    salts_changed = False
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
-        if value is None and field in {"display_name", "is_active"}:
+        if value is None and field in {"display_name", "is_active", "generic_salts"}:
+            continue
+        if field == "generic_salts" and body.generic_salts is not None:
+            normalized_salts = _normalize_salt_components(body.generic_salts)
+            salt_keys = canonical_salt_keys(normalized_salts)
+            if not salt_keys:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="At least one valid canonical generic salt is required.",
+                )
+            medication.generic_salts = [salt.model_dump() for salt in normalized_salts]
+            medication.canonical_salt_keys = salt_keys
+            salts_changed = True
             continue
         if field == "display_name" and isinstance(value, str):
             value = value.strip()
@@ -278,7 +291,7 @@ async def update_medication(
 
     reactivating = (not was_active) and bool(medication.is_active)
     reactivation_safety = None
-    if reactivating:
+    if reactivating or (salts_changed and bool(medication.is_active)):
         med_profile = await resolve_user_profile(
             session=session,
             user_id=current_user.id,

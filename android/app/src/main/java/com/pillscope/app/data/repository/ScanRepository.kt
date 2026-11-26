@@ -50,6 +50,7 @@ data class CachedScanSummary(
 data class CachedScanEvidence(
     val interactions: List<InteractionItemDto>,
     val citations: List<MonographCitationDto>,
+    val analyzedSalts: Set<String> = emptySet(),
 )
 
 data class DrugResolveOutcome(
@@ -198,7 +199,16 @@ class ScanRepository {
         scanReportDao.observeRecentReportsForProfile(profileId, limit).map { rows ->
             val interactions = rows.flatMap { decodeList<InteractionItemDto>(it.interactionsJson) }
             val citations = rows.flatMap { decodeList<MonographCitationDto>(it.citationsJson) }
-            CachedScanEvidence(interactions = interactions, citations = citations)
+            val analyzedSalts = rows
+                .flatMap { decodeList<String>(it.resolvedSaltsJson) }
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() }
+                .toSet()
+            CachedScanEvidence(
+                interactions = interactions,
+                citations = citations,
+                analyzedSalts = analyzedSalts,
+            )
         }
 
     suspend fun syncRecentScansForProfile(profileId: String): ApiCallError? {

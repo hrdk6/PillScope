@@ -9,6 +9,8 @@ import com.pillscope.app.data.remote.dto.UnresolvableScheduleClashDto
 import com.pillscope.app.data.repository.CabinetMedication
 import com.pillscope.app.ui.cabinet.CabinetGraphState
 import com.pillscope.app.ui.cabinet.GraphEdgeSeverity
+import com.pillscope.app.ui.common.formatSaltComponents
+import com.pillscope.app.ui.common.normalizeSaltInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -102,9 +104,11 @@ class CabinetGraphStateTest {
             medications = meds,
             interactions = interactions,
             citations = citations,
+            analyzedSalts = setOf("warfarin", "aspirin"),
         )
 
         assertEquals(3, graph.nodes.size)
+        assertEquals(1, graph.pausedMedicationCount)
         assertTrue(graph.nodes.first { it.medicationId == "m-warf" }.hasActiveRecall)
         assertEquals(1, graph.nodes.first { it.medicationId == "m-warf" }.recallCount)
         assertEquals(3, graph.edges.size)
@@ -125,7 +129,39 @@ class CabinetGraphStateTest {
     }
 
     @Test
-    fun nodeSelectionHighlightsIncidentEdgesAndEdgeSelectionRejectsSafeEdges() {
+    fun marksUnscannedPairsAsUnanalyzedInsteadOfSafe() {
+        val meds = listOf(
+            sampleMedication("m-1", "Warf 5", listOf("warfarin")),
+            sampleMedication("m-2", "Thyronorm 50", listOf("levothyroxine")),
+            sampleMedication("m-3", "Shelcal 500", listOf("calcium carbonate")),
+        )
+
+        val unscannedGraph = CabinetGraphState.build(
+            medications = meds,
+            interactions = emptyList(),
+            citations = emptyList(),
+            analyzedSalts = emptySet(),
+        )
+        assertEquals(3, unscannedGraph.edges.size)
+        assertEquals(3, unscannedGraph.unanalyzedEdgeCount)
+        assertTrue(unscannedGraph.edges.all { it.severity == GraphEdgeSeverity.UNANALYZED })
+        assertTrue(unscannedGraph.edges.none { it.isInteractive })
+
+        // Once warfarin has been scanned, edges touching warfarin become SAFE while untouched pairs remain UNANALYZED.
+        val partialGraph = CabinetGraphState.build(
+            medications = meds,
+            interactions = emptyList(),
+            citations = emptyList(),
+            analyzedSalts = setOf("warfarin"),
+        )
+        assertEquals(GraphEdgeSeverity.SAFE, partialGraph.edges.first { it.id == "m-1__m-2" }.severity)
+        assertEquals(GraphEdgeSeverity.SAFE, partialGraph.edges.first { it.id == "m-1__m-3" }.severity)
+        assertEquals(GraphEdgeSeverity.UNANALYZED, partialGraph.edges.first { it.id == "m-2__m-3" }.severity)
+        assertEquals(1, partialGraph.unanalyzedEdgeCount)
+    }
+
+    @Test
+    fun nodeSelectionHighlightsIncidentEdgesAndEdgeSelectionRejectsSafeAndUnanalyzedEdges() {
         val meds = listOf(
             sampleMedication("m-1", "Warf 5", listOf("warfarin")),
             sampleMedication("m-2", "Ecosprin 75", listOf("aspirin")),
@@ -152,14 +188,20 @@ class CabinetGraphStateTest {
             interactions = emptyList(),
             citations = emptyList(),
             unresolvableClashes = clashes,
+            analyzedSalts = setOf("aspirin"),
         )
 
         val majorEdge = graph.edges.first { it.id == "m-1__m-2" }
         val safeEdge = graph.edges.first { it.id == "m-2__m-3" }
+        val unanalyzedEdge = graph.edges.first { it.id == "m-1__m-3" }
         assertEquals(GraphEdgeSeverity.MAJOR, majorEdge.severity)
         assertEquals(GraphEdgeSeverity.SAFE, safeEdge.severity)
+        assertEquals(GraphEdgeSeverity.UNANALYZED, unanalyzedEdge.severity)
 
         graph = graph.selectEdge(safeEdge.id)
+        assertNull(graph.selectedEdge)
+
+        graph = graph.selectEdge(unanalyzedEdge.id)
         assertNull(graph.selectedEdge)
 
         graph = graph.selectEdge(majorEdge.id)
@@ -225,5 +267,16 @@ class CabinetGraphStateTest {
         val moved = graph.nodes.first { it.medicationId == "m-1" }
         assertEquals(0.14f, moved.normalizedX, 0.0001f)
         assertEquals(0.86f, moved.normalizedY, 0.0001f)
+    }
+
+    @Test
+    fun normalizeSaltInputSeparatesDosageStrengthsAndCanonicalizesSynonyms() {
+        val parsed = normalizeSaltInput("Paracetamol 650mg, Amoxycillin Trihydrate (500 mg) + Clavulanate 125mg")
+        assertEquals(listOf("acetaminophen", "amoxicillin", "clavulanic acid"), parsed.map { it.canonicalSalt })
+        assertEquals(650.0, parsed[0].strengthMg!!, 0.001)
+        assertEquals("650mg", parsed[0].strengthText)
+        assertEquals(500.0, parsed[1].strengthMg!!, 0.001)
+        assertEquals("500mg", parsed[1].strengthText)
+        assertEquals("acetaminophen 650mg + amoxicillin 500mg + clavulanic acid 125mg", formatSaltComponents(parsed))
     }
 }

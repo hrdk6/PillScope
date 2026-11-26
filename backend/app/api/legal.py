@@ -20,42 +20,76 @@ _PRIVACY_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
   <title>PillScope Privacy Policy &amp; Medical Disclaimer</title>
   <style>
+    :root {
+      --bg: #f4f7f7;
+      --surface: #ffffff;
+      --ink: #0f1e22;
+      --muted: #4a6066;
+      --heading: #063b3a;
+      --accent: #0b5d5b;
+      --border: #d8e3e4;
+      --callout-bg: #fef4e4;
+      --callout-border: #c46a08;
+      --callout-ink: #7c3f00;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c1417;
+        --surface: #142024;
+        --ink: #ebf4f5;
+        --muted: #9eb5bc;
+        --heading: #b2f5ea;
+        --accent: #4fd1c5;
+        --border: #283d43;
+        --callout-bg: #3b280d;
+        --callout-border: #f59e0b;
+        --callout-ink: #fde68a;
+      }
+    }
     body {
       font-family: system-ui, -apple-system, sans-serif;
       max-width: 760px; margin: 2rem auto; padding: 0 1.2rem;
-      line-height: 1.6; color: #0f1e22;
+      line-height: 1.65; background: var(--bg); color: var(--ink);
     }
-    h1, h2 { color: #063b3a; }
+    main {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 1.75rem;
+    }
+    h1, h2 { color: var(--heading); }
+    a { color: var(--accent); }
     .callout {
-      background: #fef4e4; border-left: 4px solid #c46a08;
-      padding: 1rem; border-radius: 8px;
+      background: var(--callout-bg); border-left: 4px solid var(--callout-border);
+      color: var(--callout-ink); padding: 1rem; border-radius: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>PillScope Privacy Policy &amp; Medical Disclaimer</h1>
-  <div class="callout">
-    <strong>Medical Disclaimer:</strong> PillScope provides informational medication safety checks
-    and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult
-    a licensed physician or pharmacist before starting, stopping, or changing any medication.
-  </div>
-  <h2>Data We Collect</h2>
-  <p>We store your account email, password hash, family profile names/relationships, documented
-     drug allergies, active medication cabinet entries, and saved scan logs so we can perform
-     drug-interaction, duplicate-salt, allergy, dosing schedule, and recall checks.</p>
-  <h2>Third-Party AI &amp; Safety Processing</h2>
-  <p>When you run a medication safety scan, the medicine query, resolved active ingredients,
-     relevant cabinet active ingredients, and triggered allergy or interaction alerts may be sent
-     to configured clinical briefing AI providers (such as Google Gemini or OpenAI) solely to
-     synthesize grounded explanations from official openFDA/DailyMed monographs. Camera images are
-     processed on-device and are not uploaded.</p>
-  <h2>Data Retention &amp; Deletion</h2>
-  <p>You can permanently delete your account and all associated profiles, medication cabinets,
-     allergies, and scan history at any time in the PillScope app (Profile &rarr; Account &rarr;
-     Delete Account) or directly in your browser at
-     <a href="/account-deletion">/account-deletion</a>.</p>
+  <main>
+    <h1>PillScope Privacy Policy &amp; Medical Disclaimer</h1>
+    <div class="callout">
+      <strong>Medical Disclaimer:</strong> PillScope provides informational medication safety checks
+      and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult
+      a licensed physician or pharmacist before starting, stopping, or changing any medication.
+    </div>
+    <h2>Data We Collect</h2>
+    <p>We store your account email, password hash, family profile names/relationships, documented
+       drug allergies, active medication cabinet entries, and saved scan logs so we can perform
+       drug-interaction, duplicate-salt, allergy, dosing schedule, and recall checks.</p>
+    <h2>Third-Party AI &amp; Safety Processing</h2>
+    <p>When you run a medication safety scan, the medicine query, resolved active ingredients,
+       relevant cabinet active ingredients, and triggered allergy or interaction alerts may be sent
+       to configured clinical briefing AI providers (such as Google Gemini or OpenAI) solely to
+       synthesize grounded explanations from official openFDA/DailyMed monographs. Camera images are
+       processed on-device and are not uploaded.</p>
+    <h2>Data Retention &amp; Deletion</h2>
+    <p>You can permanently delete your account and all associated profiles, medication cabinets,
+       allergies, and scan history at any time in the PillScope app (Profile &rarr; Account &rarr;
+       Delete Account) or directly in your browser at
+       <a href="/account-deletion">/account-deletion</a>.</p>
+  </main>
 </body>
 </html>
 """
@@ -65,69 +99,118 @@ def _render_deletion_page(
     *,
     status_message: str | None = None,
     error_message: str | None = None,
+    prefill_email: str = "",
 ) -> str:
     banner = ""
     if status_message:
-        banner = f'<div class="banner success">{html.escape(status_message)}</div>'
+        banner = f'<div class="banner success" role="status">{html.escape(status_message)}</div>'
     elif error_message:
-        banner = f'<div class="banner error">{html.escape(error_message)}</div>'
+        banner = f'<div class="banner error" role="alert">{html.escape(error_message)}</div>'
+
+    escaped_email = html.escape(prefill_email, quote=True)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
   <title>PillScope Account &amp; Data Deletion</title>
   <style>
+    :root {{
+      --bg: #f4f7f7;
+      --surface: #ffffff;
+      --form-bg: #edf3f3;
+      --ink: #0f1e22;
+      --heading: #063b3a;
+      --border: #d8e3e4;
+      --input-bg: #ffffff;
+      --input-border: #9fb4b7;
+      --code-bg: #e2ecec;
+      --danger: #c61d2c;
+      --success-bg: #e6f7ee;
+      --success-ink: #0a4b2e;
+      --success-border: #127a4b;
+      --error-bg: #fdecee;
+      --error-ink: #7a0d18;
+      --error-border: #c61d2c;
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #0c1417;
+        --surface: #142024;
+        --form-bg: #1b2b30;
+        --ink: #ebf4f5;
+        --heading: #b2f5ea;
+        --border: #283d43;
+        --input-bg: #0c1417;
+        --input-border: #3d5860;
+        --code-bg: #22353b;
+        --danger: #b41b29;
+        --success-bg: #0e3524;
+        --success-ink: #a7f3d0;
+        --success-border: #34d399;
+        --error-bg: #3f151a;
+        --error-ink: #fecaca;
+        --error-border: #ef4444;
+      }}
+    }}
     body {{
       font-family: system-ui, -apple-system, sans-serif;
       max-width: 760px; margin: 2rem auto; padding: 0 1.2rem;
-      line-height: 1.6; color: #0f1e22;
+      line-height: 1.65; background: var(--bg); color: var(--ink);
     }}
-    h1, h2 {{ color: #063b3a; }}
-    code {{ background: #edf3f3; padding: 2px 6px; border-radius: 4px; }}
+    main {{
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 18px; padding: 1.75rem;
+    }}
+    h1, h2 {{ color: var(--heading); }}
+    code {{ background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }}
     form {{
-      background: #f4f7f7; border: 1px solid #d8e3e4; border-radius: 12px;
+      background: var(--form-bg); border: 1px solid var(--border); border-radius: 12px;
       padding: 1.25rem; margin: 1.25rem 0;
     }}
     label {{ display: block; font-weight: 600; margin-top: 0.75rem; }}
     input {{
-      width: 100%; box-sizing: border-box; padding: 0.6rem 0.75rem;
-      margin-top: 0.25rem; border: 1px solid #b8c9cb; border-radius: 8px; font-size: 1rem;
+      width: 100%; box-sizing: border-box; padding: 0.65rem 0.75rem;
+      margin-top: 0.25rem; border: 1px solid var(--input-border); border-radius: 8px;
+      font-size: 1rem; background: var(--input-bg); color: var(--ink);
     }}
     button {{
-      margin-top: 1rem; padding: 0.7rem 1.2rem; border: 0; border-radius: 8px;
-      background: #c61d2c; color: #fff; font-weight: 600; font-size: 1rem; cursor: pointer;
+      margin-top: 1rem; padding: 0.75rem 1.25rem; border: 0; border-radius: 10px;
+      background: var(--danger); color: #ffffff; font-weight: 600; font-size: 1rem; cursor: pointer;
     }}
-    .banner {{ padding: 0.9rem 1rem; border-radius: 8px; margin: 1rem 0; font-weight: 500; }}
-    .banner.success {{ background: #e6f7ee; color: #0a4b2e; border: 1px solid #127a4b; }}
-    .banner.error {{ background: #fdecee; color: #7a0d18; border: 1px solid #c61d2c; }}
+    .banner {{ padding: 0.9rem 1rem; border-radius: 10px; margin: 1rem 0; font-weight: 500; }}
+    .banner.success {{ background: var(--success-bg); color: var(--success-ink); border: 1px solid var(--success-border); }}
+    .banner.error {{ background: var(--error-bg); color: var(--error-ink); border: 1px solid var(--error-border); }}
   </style>
 </head>
 <body>
-  <h1>Delete Your PillScope Account &amp; Health Data</h1>
-  <p>You may permanently delete your PillScope account and all associated family profiles,
-     medication cabinets, documented allergies, and scan logs immediately.</p>
-  {banner}
-  <h2>Option 1: Delete Immediately via Web Form</h2>
-  <form method="post" action="/account-deletion">
-    <label for="email">Account Email</label>
-    <input id="email" name="email" type="email" required autocomplete="email" />
-    <label for="password">Account Password</label>
-    <input id="password" name="password" type="password" required autocomplete="current-password" />
-    <label for="confirm">Type <code>DELETE</code> to confirm permanent removal</label>
-    <input id="confirm" name="confirm" type="text" required placeholder="DELETE" />
-    <button type="submit">Permanently Delete Account &amp; All Data</button>
-  </form>
-  <h2>Option 2: In the PillScope Android App</h2>
-  <ol>
-    <li>Open PillScope and tap your active profile pill at the top of the screen.</li>
-    <li>Scroll to the <strong>Account &amp; Privacy</strong> section.</li>
-    <li>Tap <strong>Delete Account</strong>, type <code>DELETE</code>, and confirm.</li>
-  </ol>
-  <h2>Option 3: Authenticated API Request</h2>
-  <p>Send an authenticated <code>DELETE /api/v1/auth/me</code> request with your Bearer access
-     token. All user data is permanently deleted immediately via cascading deletion.</p>
+  <main>
+    <h1>Delete Your PillScope Account &amp; Health Data</h1>
+    <p>You may permanently delete your PillScope account and all associated family profiles,
+       medication cabinets, documented allergies, and scan logs immediately.</p>
+    {banner}
+    <h2>Option 1: Delete Immediately via Web Form</h2>
+    <form method="post" action="/account-deletion">
+      <label for="email">Account Email</label>
+      <input id="email" name="email" type="email" required autocomplete="email" value="{escaped_email}" />
+      <label for="password">Account Password</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password" />
+      <label for="confirm">Type <code>DELETE</code> to confirm permanent removal</label>
+      <input id="confirm" name="confirm" type="text" required placeholder="DELETE" />
+      <button type="submit">Permanently Delete Account &amp; All Data</button>
+    </form>
+    <h2>Option 2: In the PillScope Android App</h2>
+    <ol>
+      <li>Open PillScope and tap your active profile pill at the top of the screen.</li>
+      <li>Scroll to the <strong>Account &amp; Privacy</strong> section.</li>
+      <li>Tap <strong>Delete Account</strong>, type <code>DELETE</code>, and confirm.</li>
+    </ol>
+    <h2>Option 3: Authenticated API Request</h2>
+    <p>Send an authenticated <code>DELETE /api/v1/auth/me</code> request with your Bearer access
+       token. All user data is permanently deleted immediately via cascading deletion.</p>
+  </main>
 </body>
 </html>
 """
@@ -157,20 +240,27 @@ async def account_deletion_submit(
     if confirm.upper() != "DELETE":
         return HTMLResponse(
             content=_render_deletion_page(
-                error_message="Please type DELETE in the confirmation field to proceed."
+                error_message="Please type DELETE in the confirmation field to proceed.",
+                prefill_email=email,
             ),
             status_code=400,
         )
     if not email or not password:
         return HTMLResponse(
-            content=_render_deletion_page(error_message="Email and password are required."),
+            content=_render_deletion_page(
+                error_message="Email and password are required.",
+                prefill_email=email,
+            ),
             status_code=400,
         )
 
     user = await session.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(password, user.password_hash):
         return HTMLResponse(
-            content=_render_deletion_page(error_message="Invalid email or password."),
+            content=_render_deletion_page(
+                error_message="Invalid email or password.",
+                prefill_email=email,
+            ),
             status_code=401,
         )
 

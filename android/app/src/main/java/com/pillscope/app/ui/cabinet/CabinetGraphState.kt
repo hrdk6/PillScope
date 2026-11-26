@@ -11,6 +11,7 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 enum class GraphEdgeSeverity(val rank: Int) {
+    UNANALYZED(-1),
     SAFE(0),
     MINOR(1),
     MODERATE(2),
@@ -43,17 +44,21 @@ data class GraphEdge(
     val citation: MonographCitationDto?,
 ) {
     val isInteractive: Boolean
-        get() = severity != GraphEdgeSeverity.SAFE
+        get() = severity != GraphEdgeSeverity.SAFE && severity != GraphEdgeSeverity.UNANALYZED
 }
 
 data class CabinetGraphState(
     val nodes: List<GraphNode> = emptyList(),
     val edges: List<GraphEdge> = emptyList(),
+    val pausedMedicationCount: Int = 0,
     val selectedNodeId: String? = null,
     val selectedEdgeId: String? = null,
 ) {
     val selectedEdge: GraphEdge?
         get() = selectedEdgeId?.let { id -> edges.firstOrNull { it.id == id } }
+
+    val unanalyzedEdgeCount: Int
+        get() = edges.count { it.severity == GraphEdgeSeverity.UNANALYZED }
 
     fun isEdgeHighlighted(edge: GraphEdge): Boolean {
         val focusNode = selectedNodeId ?: return true
@@ -96,9 +101,13 @@ data class CabinetGraphState(
             citations: List<MonographCitationDto>,
             unresolvableClashes: List<UnresolvableScheduleClashDto> = emptyList(),
             existingPositions: Map<String, Pair<Float, Float>> = emptyMap(),
+            analyzedSalts: Set<String> = emptySet(),
         ): CabinetGraphState {
             val activeMeds = medications.filter { it.isActive }
-            if (activeMeds.isEmpty()) return CabinetGraphState()
+            val pausedCount = medications.count { !it.isActive }
+            if (activeMeds.isEmpty()) {
+                return CabinetGraphState(pausedMedicationCount = pausedCount)
+            }
 
             val outerCount = if (activeMeds.size >= 6) {
                 ceil(activeMeds.size * 0.65).toInt().coerceAtLeast(4)
@@ -155,6 +164,11 @@ data class CabinetGraphState(
                 clashByPair[key] = clash
             }
 
+            val normalizedAnalyzedSalts = analyzedSalts
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() }
+                .toSet()
+
             val edges = mutableListOf<GraphEdge>()
             for (i in activeMeds.indices) {
                 for (j in i + 1 until activeMeds.size) {
@@ -166,12 +180,17 @@ data class CabinetGraphState(
                         interactionByPair = interactionByPair,
                         clashByPair = clashByPair,
                         citations = citations,
+                        analyzedSalts = normalizedAnalyzedSalts,
                     )
                     edges.add(edge)
                 }
             }
 
-            return CabinetGraphState(nodes = nodes, edges = edges)
+            return CabinetGraphState(
+                nodes = nodes,
+                edges = edges,
+                pausedMedicationCount = pausedCount,
+            )
         }
 
         private fun buildPairwiseEdge(
@@ -180,14 +199,26 @@ data class CabinetGraphState(
             interactionByPair: Map<Pair<String, String>, InteractionItemDto>,
             clashByPair: Map<Pair<String, String>, UnresolvableScheduleClashDto>,
             citations: List<MonographCitationDto>,
+            analyzedSalts: Set<String>,
         ): GraphEdge {
-            var bestSeverity = GraphEdgeSeverity.SAFE
+            val pairWasAnalyzed = medA.canonicalSaltKeys.any { it.trim().lowercase() in analyzedSalts } ||
+                medB.canonicalSaltKeys.any { it.trim().lowercase() in analyzedSalts }
+
+            var bestSeverity = if (pairWasAnalyzed) GraphEdgeSeverity.SAFE else GraphEdgeSeverity.UNANALYZED
             var bestSaltA = medA.canonicalSaltKeys.firstOrNull().orEmpty()
             var bestSaltB = medB.canonicalSaltKeys.firstOrNull().orEmpty()
             var bestProb: Double? = null
-            var bestSource = "safe_check"
-            var bestMechanism = "No known clinically significant pairwise interaction between active ingredients."
-            var bestManagement = "Continue routine adherence monitoring."
+            var bestSource = if (pairWasAnalyzed) "safe_check" else "not_analyzed"
+            var bestMechanism = if (pairWasAnalyzed) {
+                "No known clinically significant pairwise interaction between active ingredients."
+            } else {
+                "This pair has not been checked by a full safety analysis yet."
+            }
+            var bestManagement = if (pairWasAnalyzed) {
+                "Continue routine adherence monitoring."
+            } else {
+                "Run a cabinet interaction check to verify safety."
+            }
 
             val sharedSalts = medA.canonicalSaltKeys.intersect(medB.canonicalSaltKeys.toSet()).sorted()
             if (sharedSalts.isNotEmpty()) {

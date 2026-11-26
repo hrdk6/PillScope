@@ -300,6 +300,7 @@ data class MedicationCreateRequestDto(
 @Serializable
 data class MedicationUpdateRequestDto(
     @SerialName("display_name") val displayName: String? = null,
+    @SerialName("generic_salts") val genericSalts: List<SaltComponentDto>? = null,
     @SerialName("dosage_schedule") val dosageSchedule: String? = null,
     @SerialName("is_active") val isActive: Boolean? = null,
     @SerialName("started_at") val startedAt: String? = null,

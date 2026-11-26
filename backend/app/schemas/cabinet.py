@@ -45,6 +45,7 @@ class MedicationCreateRequest(BaseModel):
 
 class MedicationUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    generic_salts: list[SaltComponent] | None = Field(default=None, max_length=20)
     dosage_schedule: str | None = Field(default=None, max_length=120)
     is_active: bool | None = None
     started_at: datetime | None = None

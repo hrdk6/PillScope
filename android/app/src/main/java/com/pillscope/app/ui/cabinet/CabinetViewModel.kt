@@ -2,6 +2,7 @@ package com.pillscope.app.ui.cabinet
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pillscope.app.data.local.entity.DefaultProfileIds
 import com.pillscope.app.data.remote.ApiCallError
 import com.pillscope.app.data.remote.dto.AllergyAlertDto
 import com.pillscope.app.data.remote.dto.AllergyEntryDto
@@ -9,12 +10,14 @@ import com.pillscope.app.data.remote.dto.BrandCandidateDto
 import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
 import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
 import com.pillscope.app.data.remote.dto.SaltComponentDto
+import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
 import com.pillscope.app.data.repository.CabinetMedication
 import com.pillscope.app.data.repository.CabinetRepository
 import com.pillscope.app.data.repository.CabinetSyncReport
 import com.pillscope.app.data.repository.ProfileRepository
 import com.pillscope.app.data.repository.ScanRepository
 import com.pillscope.app.data.repository.ScheduleAndRecallRepository
+import com.pillscope.app.ui.common.normalizeSaltInput
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -101,6 +104,7 @@ class CabinetViewModel @Inject constructor(
             citations = evidence.citations,
             unresolvableClashes = schedule?.unresolvableClashes.orEmpty(),
             existingPositions = positions,
+            analyzedSalts = evidence.analyzedSalts,
         )
         built.copy(
             selectedNodeId = selection.first,
@@ -112,21 +116,32 @@ class CabinetViewModel @Inject constructor(
     val uiState: StateFlow<CabinetUiState> = _uiState.asStateFlow()
 
     private var catalogSearchJob: Job? = null
+    private var syncJob: Job? = null
+    private var autoDismissJob: Job? = null
+    private val syncedProfileIds = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
-            profileRepository.selectedProfileId.collect {
-                customNodePositions.value = emptyMap()
-                selectedNodeId.value = null
-                selectedEdgeId.value = null
-                _uiState.update {
-                    it.copy(
-                        selectedMedicationDetail = null,
-                        lastDuplicateAlerts = emptyList(),
-                        lastAllergyAlerts = emptyList(),
-                    )
+            profileRepository.selectedProfileId
+                .collect { profileId ->
+                    customNodePositions.value = emptyMap()
+                    selectedNodeId.value = null
+                    selectedEdgeId.value = null
+                    _uiState.update {
+                        it.copy(
+                            selectedMedicationDetail = null,
+                            lastDuplicateAlerts = emptyList(),
+                            lastAllergyAlerts = emptyList(),
+                            statusBanner = null,
+                            statusIsError = false,
+                        )
+                    }
+                    // Automatically sync server profiles on profile switch so newly selected
+                    // family profiles immediately display their cabinet, recalls, and scan history.
+                    if (profileRepository.isServerProfileId(profileId) && profileId !in syncedProfileIds) {
+                        syncCabinetInternal(profileId = profileId, showSuccessBanner = false)
+                    }
                 }
-            }
         }
     }
 
@@ -148,6 +163,44 @@ class CabinetViewModel @Inject constructor(
         customNodePositions.update { current ->
             current + (medicationId to (normX.coerceIn(0.12f, 0.88f) to normY.coerceIn(0.12f, 0.88f)))
         }
+    }
+
+    fun resetGraphLayout() {
+        customNodePositions.value = emptyMap()
+    }
+
+    fun dismissStatusBanner() {
+        autoDismissJob?.cancel()
+        _uiState.update { it.copy(statusBanner = null, statusIsError = false) }
+    }
+
+    fun dismissSafetyAlerts() {
+        _uiState.update {
+            it.copy(lastDuplicateAlerts = emptyList(), lastAllergyAlerts = emptyList())
+        }
+    }
+
+    fun buildCabinetInteractionCheckRequest(): ScanAnalyzeRequestDto? {
+        val activeMeds = medications.value.filter { it.isActive }
+        if (activeMeds.size < 2) return null
+
+        val unanalyzedMedIds = graphState.value.edges
+            .filter { it.severity == GraphEdgeSeverity.UNANALYZED }
+            .flatMap { listOf(it.sourceId, it.targetId) }
+            .toSet()
+
+        val targetMed = activeMeds.firstOrNull { it.id in unanalyzedMedIds } ?: activeMeds.first()
+        val currentProfileId = profileRepository.selectedProfileId.value
+        val serverProfileId = currentProfileId.takeIf {
+            it.isNotBlank() && !it.startsWith("local-") && it != DefaultProfileIds.LOCAL_DEFAULT
+        }
+        return ScanAnalyzeRequestDto(
+            profileId = serverProfileId,
+            persist = true,
+            inputMode = "MANUAL_TEXT",
+            submittedQuery = targetMed.displayName,
+            confirmedSalts = targetMed.canonicalSaltKeys,
+        )
     }
 
     fun searchCatalog(query: String) {
@@ -196,19 +249,27 @@ class CabinetViewModel @Inject constructor(
         _uiState.update { it.copy(selectedMedicationDetail = null, isLoadingDetail = false) }
     }
 
-    fun updateMedicationDetails(id: String, displayName: String, dosageSchedule: String?) {
+    fun updateMedicationDetails(
+        id: String,
+        displayName: String,
+        dosageSchedule: String?,
+        rawSaltsCsv: String? = null,
+    ) {
         val profileId = profileRepository.selectedProfileId.value
+        val parsedSalts = rawSaltsCsv?.let(::normalizeSaltInput)
         viewModelScope.launch {
             val result = cabinetRepository.updateMedicationDetails(
                 id = id,
                 displayName = displayName,
                 dosageSchedule = dosageSchedule,
+                genericSalts = parsedSalts,
             )
             if (result.updatedLocally) {
                 val refreshed = cabinetRepository.fetchMedicationDetail(id, profileId)
                     ?: medications.value.firstOrNull { it.id == id }
                 if (result.syncedWithServer) {
                     scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
+                    scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
                 }
                 val (banner, isError) = when {
                     result.syncedWithServer -> "Updated ${displayName.trim()}" to false
@@ -219,10 +280,13 @@ class CabinetViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         selectedMedicationDetail = refreshed,
+                        lastDuplicateAlerts = result.duplicateAlerts.ifEmpty { it.lastDuplicateAlerts },
+                        lastAllergyAlerts = result.allergyAlerts.ifEmpty { it.lastAllergyAlerts },
                         statusBanner = banner,
                         statusIsError = isError,
                     )
                 }
+                if (!isError) scheduleBannerAutoDismiss()
             } else if (result.apiError != null) {
                 _uiState.update {
                     it.copy(statusBanner = result.apiError.userMessage, statusIsError = true)
@@ -233,6 +297,9 @@ class CabinetViewModel @Inject constructor(
 
     fun resetForAccountChange() {
         catalogSearchJob?.cancel()
+        syncJob?.cancel()
+        autoDismissJob?.cancel()
+        syncedProfileIds.clear()
         customNodePositions.value = emptyMap()
         selectedNodeId.value = null
         selectedEdgeId.value = null
@@ -240,16 +307,34 @@ class CabinetViewModel @Inject constructor(
     }
 
     fun syncCabinet() {
-        val profileId = profileRepository.selectedProfileId.value
-        viewModelScope.launch {
+        syncCabinetInternal(
+            profileId = profileRepository.selectedProfileId.value,
+            showSuccessBanner = true,
+        )
+    }
+
+    private fun syncCabinetInternal(
+        profileId: String,
+        showSuccessBanner: Boolean,
+    ) {
+        syncJob?.cancel()
+        syncJob = viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, statusBanner = null, statusIsError = false) }
             val report = cabinetRepository.syncWithBackend(profileId)
             scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
             scheduleAndRecallRepository.refreshScheduleDetailed(profileId)
             scanRepository.syncRecentScansForProfile(profileId)
 
+            if (report.isSuccess && profileRepository.isServerProfileId(profileId)) {
+                syncedProfileIds.add(profileId)
+            }
+
             val (msg, isError) = when {
-                report.isSuccess -> "Synced (${report.pulledCount} medications up to date)" to false
+                report.isSuccess -> if (showSuccessBanner) {
+                    "Synced (${report.pulledCount} ${if (report.pulledCount == 1) "medication" else "medications"} up to date)" to false
+                } else {
+                    null to false
+                }
                 report.error is ApiCallError.Offline ->
                     "Offline mode — local changes queued for next sync" to false
                 report.error != null -> report.error.userMessage to true
@@ -263,6 +348,19 @@ class CabinetViewModel @Inject constructor(
                     statusIsError = isError,
                 )
             }
+            if (msg != null && !isError) {
+                scheduleBannerAutoDismiss()
+            }
+        }
+    }
+
+    private fun scheduleBannerAutoDismiss() {
+        autoDismissJob?.cancel()
+        autoDismissJob = viewModelScope.launch {
+            delay(4_000L)
+            _uiState.update { state ->
+                if (!state.statusIsError) state.copy(statusBanner = null) else state
+            }
         }
     }
 
@@ -272,11 +370,7 @@ class CabinetViewModel @Inject constructor(
         dosageSchedule: String?,
         brandMappingId: String? = null,
     ) {
-        val salts = rawSaltsCsv
-            .split(",", "+")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .map { SaltComponentDto(canonicalSalt = it.lowercase()) }
+        val salts = normalizeSaltInput(rawSaltsCsv)
         if (displayName.isBlank() || salts.isEmpty()) return
 
         addMedicationInternal(
@@ -344,6 +438,7 @@ class CabinetViewModel @Inject constructor(
                     statusIsError = isError,
                 )
             }
+            if (!isError) scheduleBannerAutoDismiss()
         }
     }
 
@@ -361,10 +456,14 @@ class CabinetViewModel @Inject constructor(
                 scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
             }
             val errBanner = result.apiError?.takeIf { it !is ApiCallError.Offline }?.userMessage
+            val updatedDetail = _uiState.value.selectedMedicationDetail?.let { detail ->
+                if (detail.id == id) detail.copy(isActive = active) else detail
+            }
             _uiState.update { state ->
                 state.copy(
-                    lastDuplicateAlerts = if (active) result.duplicateAlerts else state.lastDuplicateAlerts,
-                    lastAllergyAlerts = if (active) result.allergyAlerts else state.lastAllergyAlerts,
+                    selectedMedicationDetail = updatedDetail,
+                    lastDuplicateAlerts = if (active) result.duplicateAlerts else emptyList(),
+                    lastAllergyAlerts = if (active) result.allergyAlerts else emptyList(),
                     statusBanner = errBanner ?: state.statusBanner,
                     statusIsError = errBanner != null,
                 )
@@ -381,11 +480,15 @@ class CabinetViewModel @Inject constructor(
                 scheduleAndRecallRepository.refreshRecallsDetailed(profileId)
             }
             if (selectedNodeId.value == id) selectedNodeId.value = null
-            if (_uiState.value.selectedMedicationDetail?.id == id) {
-                _uiState.update { it.copy(selectedMedicationDetail = null) }
-            }
-            result.apiError?.takeIf { it !is ApiCallError.Offline }?.let { err ->
-                _uiState.update { it.copy(statusBanner = err.userMessage, statusIsError = true) }
+            _uiState.update { state ->
+                val errBanner = result.apiError?.takeIf { it !is ApiCallError.Offline }?.userMessage
+                state.copy(
+                    selectedMedicationDetail = if (state.selectedMedicationDetail?.id == id) null else state.selectedMedicationDetail,
+                    lastDuplicateAlerts = emptyList(),
+                    lastAllergyAlerts = emptyList(),
+                    statusBanner = errBanner ?: state.statusBanner,
+                    statusIsError = errBanner != null,
+                )
             }
         }
     }

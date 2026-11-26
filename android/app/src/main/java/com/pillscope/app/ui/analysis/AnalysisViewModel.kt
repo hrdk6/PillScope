@@ -3,11 +3,14 @@ package com.pillscope.app.ui.analysis
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
+import com.pillscope.app.data.repository.CabinetMedication
+import com.pillscope.app.data.repository.CabinetRepository
 import com.pillscope.app.data.repository.CachedScanSummary
 import com.pillscope.app.data.repository.ProfileRepository
 import com.pillscope.app.data.repository.ScanAnalysisState
 import com.pillscope.app.data.repository.ScanRepository
 import com.pillscope.app.data.repository.ScheduleAndRecallRepository
+import com.pillscope.app.data.repository.UserProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -26,12 +29,36 @@ import javax.inject.Inject
 class AnalysisViewModel @Inject constructor(
     private val scanRepository: ScanRepository,
     private val profileRepository: ProfileRepository,
+    private val cabinetRepository: CabinetRepository,
     private val scheduleAndRecallRepository: ScheduleAndRecallRepository,
 ) : ViewModel() {
     private val rawAnalysisState = MutableStateFlow(ScanAnalysisState())
     private val _lastRequest = MutableStateFlow<ScanAnalyzeRequestDto?>(null)
-    private val _savedScanKeys = MutableStateFlow<Set<String>>(emptySet())
-    val savedScanKeys: StateFlow<Set<String>> = _savedScanKeys.asStateFlow()
+    // Maps scanKey -> (savedDisplayNameLower, savedCanonicalSaltSet) so deletion from Cabinet
+    // immediately clears the "Saved to cabinet" badge.
+    private val _savedEntries = MutableStateFlow<Map<String, Pair<String, Set<String>>>>(emptyMap())
+
+    val activeProfile: StateFlow<UserProfile> = profileRepository.observeActiveProfile()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            UserProfile(
+                id = "default-local-profile",
+                userId = "",
+                name = "Self",
+                relationship = "self",
+                allergies = emptyList(),
+                notes = null,
+                isDefault = true,
+                updatedAtEpochMs = 0L,
+            ),
+        )
+
+    private val profileMedications: StateFlow<List<CabinetMedication>> = profileRepository.selectedProfileId
+        .flatMapLatest { profileId ->
+            cabinetRepository.observeAllVisibleMedications(profileId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val canRetry: StateFlow<Boolean> = _lastRequest
         .combine(rawAnalysisState) { req, _ -> req != null }
@@ -58,6 +85,30 @@ class AnalysisViewModel @Inject constructor(
         scan.copy(activeRecalls = mergedRecalls)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ScanAnalysisState())
 
+    val isCurrentScanSavedInCabinet: StateFlow<Boolean> = combine(
+        state,
+        profileMedications,
+        _savedEntries,
+    ) { scan, meds, savedMap ->
+        val scanSalts = scan.resolvedSalts.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+        if (scanSalts.isEmpty()) return@combine false
+        val scanKey = scan.scanId ?: "${scan.submittedQuery}:${scan.resolvedSalts.joinToString(",")}"
+        val savedEntry = savedMap[scanKey]
+        if (savedEntry != null) {
+            val (savedName, savedSalts) = savedEntry
+            meds.any { med ->
+                val medSalts = med.canonicalSaltKeys.map { it.trim().lowercase() }.toSet()
+                med.displayName.trim().lowercase() == savedName || medSalts == savedSalts
+            }
+        } else {
+            val queryLower = scan.submittedQuery.trim().lowercase()
+            queryLower.isNotEmpty() && meds.any { med ->
+                val medSalts = med.canonicalSaltKeys.map { it.trim().lowercase() }.toSet()
+                med.displayName.trim().lowercase() == queryLower && medSalts == scanSalts
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     val cachedHistory: StateFlow<List<CachedScanSummary>> = profileRepository.selectedProfileId
         .flatMapLatest { profileId ->
             scanRepository.observeCachedReports(profileId = profileId, limit = 30)
@@ -65,6 +116,20 @@ class AnalysisViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private var streamJob: Job? = null
+    private var lastObservedProfileId: String? = null
+
+    init {
+        viewModelScope.launch {
+            profileRepository.selectedProfileId
+                .collect { profileId ->
+                    val previous = lastObservedProfileId
+                    lastObservedProfileId = profileId
+                    if (previous != null && previous != profileId) {
+                        clearActiveReportForProfileSwitch()
+                    }
+                }
+        }
+    }
 
     fun startAnalysis(request: ScanAnalyzeRequestDto) {
         _lastRequest.value = request
@@ -90,16 +155,24 @@ class AnalysisViewModel @Inject constructor(
         }
     }
 
-    fun markScanSaved(scanKey: String) {
+    fun markScanSaved(scanKey: String, displayName: String, resolvedSalts: List<String>) {
         if (scanKey.isNotBlank()) {
-            _savedScanKeys.value = _savedScanKeys.value + scanKey
+            val saltSet = resolvedSalts.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+            _savedEntries.value = _savedEntries.value + (scanKey to (displayName.trim().lowercase() to saltSet))
         }
+    }
+
+    fun clearActiveReportForProfileSwitch() {
+        streamJob?.cancel()
+        rawAnalysisState.value = ScanAnalysisState()
+        _lastRequest.value = null
+        _savedEntries.value = emptyMap()
     }
 
     fun resetForAccountChange() {
         streamJob?.cancel()
         rawAnalysisState.value = ScanAnalysisState()
         _lastRequest.value = null
-        _savedScanKeys.value = emptySet()
+        _savedEntries.value = emptyMap()
     }
 }

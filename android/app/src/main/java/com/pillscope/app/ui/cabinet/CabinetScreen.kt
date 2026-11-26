@@ -6,12 +6,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -19,18 +24,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,16 +66,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pillscope.app.data.remote.dto.AllergyAlertDto
 import com.pillscope.app.data.remote.dto.AllergyEntryDto
 import com.pillscope.app.data.remote.dto.BrandCandidateDto
+import com.pillscope.app.data.remote.dto.DuplicateSaltAlertDto
+import com.pillscope.app.data.remote.dto.ProfileRecallAlertItemDto
+import com.pillscope.app.data.remote.dto.ScanAnalyzeRequestDto
 import com.pillscope.app.data.repository.CabinetMedication
 import com.pillscope.app.data.repository.OfflineAllergyChecker
+import com.pillscope.app.ui.common.DosagePresetChips
+import com.pillscope.app.ui.common.formatSaltComponents
+import com.pillscope.app.ui.common.normalizeSaltInput
+import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
 
 @OptIn(
@@ -78,6 +92,7 @@ import com.pillscope.app.ui.theme.PillScopeColors
 @Composable
 fun CabinetScreen(
     viewModel: CabinetViewModel,
+    onRunCabinetInteractionCheck: ((ScanAnalyzeRequestDto) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val medications by viewModel.medications.collectAsStateWithLifecycle()
@@ -167,136 +182,89 @@ fun CabinetScreen(
                 )
             }
 
-            if (recalls.isNotEmpty()) {
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = PillScopeColors.CriticalCrimson,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                text = "US FDA Recall Alert (${recalls.size})",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color.White,
-                            )
-                        }
-                        recalls.take(2).forEach { alert ->
-                            Text(
-                                text = "${alert.matchedMedicationName} (${alert.classification}): ${alert.reasonForRecall}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White,
-                            )
-                        }
-                        Text(
-                            text = "Matched by active salt against US FDA recalls — verify lot number on your package.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.88f),
-                        )
-                    }
-                }
-            }
-
-            uiState.statusBanner?.let { msg ->
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (uiState.statusIsError) {
-                        PillScopeColors.ModerateAmberSurface
-                    } else {
-                        PillScopeColors.ClinicalTealContainer
-                    },
-                ) {
-                    Text(
-                        text = msg,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (uiState.statusIsError) {
-                            PillScopeColors.ModerateAmberDark
-                        } else {
-                            PillScopeColors.ClinicalTealDeep
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
-
-            if (uiState.lastDuplicateAlerts.isNotEmpty() || uiState.lastAllergyAlerts.isNotEmpty()) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = PillScopeColors.CriticalCrimson,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = "Safety override triggered",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color.White,
-                        )
-                        uiState.lastAllergyAlerts.forEach { allergy ->
-                            Text(
-                                text = "• Allergy (${allergy.allergen}): ${allergy.reason}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White,
-                            )
-                        }
-                        uiState.lastDuplicateAlerts.forEach { dup ->
-                            Text(
-                                text = "• Duplicate salt ${dup.canonicalSalt} already active in ${dup.existingDisplayName}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White,
-                            )
-                        }
-                    }
-                }
-            }
-
             if (uiState.displayMode == CabinetDisplayMode.NETWORK) {
-                CabinetNetworkGraph(
-                    graphState = graphState,
-                    onSelectNode = viewModel::selectGraphNode,
-                    onSelectEdge = viewModel::selectGraphEdge,
-                    onMoveNode = viewModel::moveGraphNode,
-                    onInspectMedication = viewModel::openMedicationDetail,
-                )
-            } else if (medications.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
-                    border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(
-                        text = "This profile has no saved medications yet. Tap + to add active prescriptions.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PillScopeColors.InkSecondary,
-                        modifier = Modifier.padding(18.dp),
+                    CabinetAlertBanners(
+                        recalls = recalls,
+                        statusBanner = uiState.statusBanner,
+                        statusIsError = uiState.statusIsError,
+                        duplicateAlerts = uiState.lastDuplicateAlerts,
+                        allergyAlerts = uiState.lastAllergyAlerts,
+                        onDismissStatus = viewModel::dismissStatusBanner,
+                        onDismissSafetyAlerts = viewModel::dismissSafetyAlerts,
+                    )
+                    CabinetNetworkGraph(
+                        graphState = graphState,
+                        onSelectNode = viewModel::selectGraphNode,
+                        onSelectEdge = viewModel::selectGraphEdge,
+                        onMoveNode = viewModel::moveGraphNode,
+                        onResetLayout = viewModel::resetGraphLayout,
+                        onInspectMedication = viewModel::openMedicationDetail,
+                        onCheckCabinetInteractions = if (onRunCabinetInteractionCheck != null) {
+                            {
+                                viewModel.buildCabinetInteractionCheckRequest()
+                                    ?.let(onRunCabinetInteractionCheck)
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(medications, key = { it.id }) { med ->
-                        CabinetMedicationCard(
-                            medication = med,
-                            onClick = { viewModel.openMedicationDetail(med.id) },
-                            onToggleActive = { active -> viewModel.toggleActive(med.id, active) },
-                            onDelete = { pendingDeleteMed = med },
-                        )
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (recalls.isNotEmpty() ||
+                        uiState.statusBanner != null ||
+                        uiState.lastDuplicateAlerts.isNotEmpty() ||
+                        uiState.lastAllergyAlerts.isNotEmpty()
+                    ) {
+                        item(key = "cabinet_banners") {
+                            CabinetAlertBanners(
+                                recalls = recalls,
+                                statusBanner = uiState.statusBanner,
+                                statusIsError = uiState.statusIsError,
+                                duplicateAlerts = uiState.lastDuplicateAlerts,
+                                allergyAlerts = uiState.lastAllergyAlerts,
+                                onDismissStatus = viewModel::dismissStatusBanner,
+                                onDismissSafetyAlerts = viewModel::dismissSafetyAlerts,
+                            )
+                        }
+                    }
+
+                    if (medications.isEmpty()) {
+                        item(key = "cabinet_empty") {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+                                border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+                            ) {
+                                Text(
+                                    text = "This profile has no saved medications yet. Tap + to add active prescriptions.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = PillScopeColors.InkSecondary,
+                                    modifier = Modifier.padding(18.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        items(medications, key = { it.id }) { med ->
+                            CabinetMedicationCard(
+                                medication = med,
+                                onClick = { viewModel.openMedicationDetail(med.id) },
+                                onToggleActive = { active -> viewModel.toggleActive(med.id, active) },
+                                onDelete = { pendingDeleteMed = med },
+                            )
+                        }
                     }
                 }
             }
@@ -335,8 +303,12 @@ fun CabinetScreen(
                         viewModel.deleteMedication(med.id)
                         pendingDeleteMed = null
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = PillScopeColors.CriticalCrimson,
+                        disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
+                    ),
                 ) {
-                    Text("Remove", color = PillScopeColors.CriticalCrimson)
+                    Text("Remove")
                 }
             },
             dismissButton = {
@@ -356,14 +328,173 @@ fun CabinetScreen(
             MedicationDetailBottomSheetContent(
                 medication = detail,
                 isLoading = uiState.isLoadingDetail,
-                onSaveEdits = { newName, newSchedule ->
-                    viewModel.updateMedicationDetails(detail.id, newName, newSchedule)
+                onSaveEdits = { newName, newSaltsCsv, newSchedule ->
+                    viewModel.updateMedicationDetails(detail.id, newName, newSchedule, newSaltsCsv)
+                },
+                onToggleActive = { active ->
+                    viewModel.toggleActive(detail.id, active)
+                },
+                onRequestDelete = {
+                    pendingDeleteMed = detail
                 },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .imePadding()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 28.dp),
+                    .padding(bottom = 24.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun CabinetAlertBanners(
+    recalls: List<ProfileRecallAlertItemDto>,
+    statusBanner: String?,
+    statusIsError: Boolean,
+    duplicateAlerts: List<DuplicateSaltAlertDto>,
+    allergyAlerts: List<AllergyAlertDto>,
+    onDismissStatus: () -> Unit,
+    onDismissSafetyAlerts: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (recalls.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = PillScopeColors.CriticalBannerContainer,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = PillScopeColors.OnCriticalBanner,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "US FDA Recall Alert (${recalls.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = PillScopeColors.OnCriticalBanner,
+                        )
+                    }
+                    recalls.take(2).forEach { alert ->
+                        Text(
+                            text = "${alert.matchedMedicationName} (${alert.classification}): ${alert.reasonForRecall}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PillScopeColors.OnCriticalBanner,
+                        )
+                    }
+                    Text(
+                        text = "Matched by active ingredient against US FDA recalls — verify lot number on your package.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = PillScopeColors.OnCriticalBanner.copy(alpha = 0.9f),
+                    )
+                }
+            }
+        }
+
+        statusBanner?.let { msg ->
+            val bg = if (statusIsError) {
+                PillScopeColors.ModerateAmberSurface
+            } else {
+                PillScopeColors.ClinicalTealContainer
+            }
+            val fg = if (statusIsError) {
+                PillScopeColors.ModerateAmberDark
+            } else {
+                PillScopeColors.ClinicalTealDeep
+            }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = bg,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = fg,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = onDismissStatus,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss status banner",
+                            tint = fg,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (duplicateAlerts.isNotEmpty() || allergyAlerts.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = PillScopeColors.CriticalBannerContainer,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Safety override triggered",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = PillScopeColors.OnCriticalBanner,
+                        )
+                        IconButton(
+                            onClick = onDismissSafetyAlerts,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss safety warning",
+                                tint = PillScopeColors.OnCriticalBanner,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                    allergyAlerts.forEach { allergy ->
+                        Text(
+                            text = "• Allergy (${allergy.allergen}): ${allergy.reason}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PillScopeColors.OnCriticalBanner,
+                        )
+                    }
+                    duplicateAlerts.forEach { dup ->
+                        Text(
+                            text = "• Duplicate ingredient ${dup.canonicalSalt} already active in ${dup.existingDisplayName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PillScopeColors.OnCriticalBanner,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -376,14 +507,21 @@ private fun CabinetMedicationCard(
     onToggleActive: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
+    val isPaused = !medication.isActive
+    val saltText = remember(medication.genericSalts, medication.canonicalSaltKeys) {
+        formatSaltComponents(medication.genericSalts, medication.canonicalSaltKeys)
+    }
+
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = PillScopeColors.CardSurface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isPaused) PillScopeColors.SurfaceTint else PillScopeColors.CardSurface,
+        ),
         border = BorderStroke(
-            width = if (medication.hasActiveRecall) 1.5.dp else 1.dp,
-            color = if (medication.hasActiveRecall) {
+            width = if (medication.hasActiveRecall && !isPaused) 1.5.dp else 1.dp,
+            color = if (medication.hasActiveRecall && !isPaused) {
                 PillScopeColors.CriticalCrimson
             } else {
                 PillScopeColors.SlateBorder
@@ -397,16 +535,34 @@ private fun CabinetMedicationCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .alpha(if (isPaused) 0.72f else 1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
                         text = medication.displayName,
                         style = MaterialTheme.typography.titleMedium,
                         color = PillScopeColors.InkPrimary,
                     )
+                    if (isPaused) {
+                        Surface(
+                            shape = CircleShape,
+                            color = PillScopeColors.SlateBorder.copy(alpha = 0.65f),
+                        ) {
+                            Text(
+                                text = "Paused",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PillScopeColors.InkPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
                     if (medication.hasActiveRecall) {
                         Surface(
                             shape = CircleShape,
@@ -415,14 +571,14 @@ private fun CabinetMedicationCard(
                             Text(
                                 text = "FDA Recall",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = PillScopeColors.CriticalCrimson,
+                                color = PillScopeColors.CriticalCrimsonDark,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             )
                         }
                     }
                 }
                 Text(
-                    text = medication.canonicalSaltKeys.joinToString(" + "),
+                    text = saltText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.ClinicalTeal,
                 )
@@ -479,7 +635,7 @@ private fun CabinetMedicationCard(
             IconButton(onClick = onDelete) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Remove medication",
+                    contentDescription = "Remove ${medication.displayName}",
                     tint = PillScopeColors.InkSecondary,
                 )
             }
@@ -492,15 +648,31 @@ private fun CabinetMedicationCard(
 private fun MedicationDetailBottomSheetContent(
     medication: CabinetMedication,
     isLoading: Boolean,
-    onSaveEdits: (displayName: String, dosageSchedule: String?) -> Unit,
+    onSaveEdits: (displayName: String, rawSaltsCsv: String?, dosageSchedule: String?) -> Unit,
+    onToggleActive: (Boolean) -> Unit,
+    onRequestDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val uriHandler = LocalUriHandler.current
+    val openUri = rememberSafeUriOpener()
     var isEditing by remember(medication.id) { mutableStateOf(false) }
     var editedName by remember(medication.id, medication.displayName) { mutableStateOf(medication.displayName) }
+    val initialSaltsCsv = remember(medication.id, medication.genericSalts, medication.canonicalSaltKeys) {
+        if (medication.genericSalts.isNotEmpty()) {
+            medication.genericSalts.joinToString(", ") { salt ->
+                val strength = salt.strengthText?.takeIf { it.isNotBlank() }
+                    ?: salt.strengthMg?.let { mg -> if (mg % 1.0 == 0.0) "${mg.toInt()}mg" else "${mg}mg" }
+                if (strength != null) "${salt.canonicalSalt} $strength" else salt.canonicalSalt
+            }
+        } else {
+            medication.canonicalSaltKeys.joinToString(", ")
+        }
+    }
+    var editedSaltsCsv by remember(medication.id, initialSaltsCsv) { mutableStateOf(initialSaltsCsv) }
     var editedSchedule by remember(medication.id, medication.dosageSchedule) {
         mutableStateOf(medication.dosageSchedule.orEmpty())
     }
+
+    val normalizedDraftSalts = remember(editedSaltsCsv) { normalizeSaltInput(editedSaltsCsv) }
 
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
@@ -518,7 +690,7 @@ private fun MedicationDetailBottomSheetContent(
                     color = PillScopeColors.InkPrimary,
                 )
                 Text(
-                    text = medication.canonicalSaltKeys.joinToString(" + "),
+                    text = formatSaltComponents(medication.genericSalts, medication.canonicalSaltKeys),
                     style = MaterialTheme.typography.bodyMedium,
                     color = PillScopeColors.ClinicalTeal,
                     fontWeight = FontWeight.SemiBold,
@@ -535,6 +707,43 @@ private fun MedicationDetailBottomSheetContent(
                         tint = PillScopeColors.ClinicalTeal,
                     )
                 }
+            }
+        }
+
+        // Active / Paused control directly accessible from both List and Network views
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            color = PillScopeColors.SlateSurface,
+            border = BorderStroke(1.dp, PillScopeColors.SlateBorder),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (medication.isActive) "Active in regimen" else "Paused",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = PillScopeColors.InkPrimary,
+                    )
+                    Text(
+                        text = if (medication.isActive) {
+                            "Included in interaction checks and daily schedule."
+                        } else {
+                            "Excluded from interaction checks and daily schedule."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PillScopeColors.InkSecondary,
+                    )
+                }
+                Switch(
+                    checked = medication.isActive,
+                    onCheckedChange = onToggleActive,
+                )
             }
         }
 
@@ -558,11 +767,23 @@ private fun MedicationDetailBottomSheetContent(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
-                        value = editedSchedule,
-                        onValueChange = { editedSchedule = it },
-                        label = { Text("Dosage schedule (e.g. 1 tab twice daily)") },
+                        value = editedSaltsCsv,
+                        onValueChange = { editedSaltsCsv = it },
+                        label = { Text("Active ingredients (comma separated)") },
+                        supportingText = { Text("Strengths like 500mg are extracted automatically.") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = editedSchedule,
+                        onValueChange = { editedSchedule = it },
+                        label = { Text("Dosage schedule (e.g. Twice daily)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    DosagePresetChips(
+                        currentValue = editedSchedule,
+                        onValueChange = { editedSchedule = it },
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -571,6 +792,7 @@ private fun MedicationDetailBottomSheetContent(
                         OutlinedButton(
                             onClick = {
                                 editedName = medication.displayName
+                                editedSaltsCsv = initialSaltsCsv
                                 editedSchedule = medication.dosageSchedule.orEmpty()
                                 isEditing = false
                             },
@@ -580,10 +802,15 @@ private fun MedicationDetailBottomSheetContent(
                         }
                         Button(
                             onClick = {
-                                onSaveEdits(editedName.trim(), editedSchedule.trim().takeIf { it.isNotEmpty() })
+                                val saltsChanged = editedSaltsCsv.trim() != initialSaltsCsv.trim()
+                                onSaveEdits(
+                                    editedName.trim(),
+                                    if (saltsChanged) editedSaltsCsv else null,
+                                    editedSchedule.trim().takeIf { it.isNotEmpty() },
+                                )
                                 isEditing = false
                             },
-                            enabled = editedName.isNotBlank(),
+                            enabled = editedName.isNotBlank() && normalizedDraftSalts.isNotEmpty(),
                             modifier = Modifier.weight(1f),
                         ) {
                             Text("Save")
@@ -619,14 +846,14 @@ private fun MedicationDetailBottomSheetContent(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
-                            text = "${recall.alertLabel} • ${recall.classification} (${recall.status})",
+                            text = "${recall.classification} recall (${recall.status})",
                             style = MaterialTheme.typography.labelMedium,
                             color = PillScopeColors.CriticalCrimsonDark,
                             fontWeight = FontWeight.SemiBold,
                         )
                         recall.recallingFirm?.takeIf { it.isNotBlank() }?.let { firm ->
                             Text(
-                                text = "Firm: $firm",
+                                text = "Manufacturer: $firm",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = PillScopeColors.InkPrimary,
                             )
@@ -641,23 +868,25 @@ private fun MedicationDetailBottomSheetContent(
                         if (isWebUrl) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.clickable {
-                                    runCatching { uriHandler.openUri(recall.sourceUrl) }
-                                },
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable { openUri(recall.sourceUrl) }
+                                    .padding(vertical = 8.dp),
                             ) {
                                 Text(
                                     text = "View FDA enforcement notice",
-                                    style = MaterialTheme.typography.labelSmall.copy(
+                                    style = MaterialTheme.typography.labelLarge.copy(
                                         textDecoration = TextDecoration.Underline,
                                     ),
                                     color = PillScopeColors.MinorBlue,
                                 )
                                 Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = null,
+                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                    contentDescription = "Open FDA enforcement notice",
                                     tint = PillScopeColors.MinorBlue,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
@@ -699,6 +928,24 @@ private fun MedicationDetailBottomSheetContent(
                 }
             }
         }
+
+        HorizontalDivider(color = PillScopeColors.SlateBorder)
+
+        OutlinedButton(
+            onClick = onRequestDelete,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, PillScopeColors.CriticalCrimson.copy(alpha = 0.55f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = PillScopeColors.CriticalCrimson,
+            ),
+        ) {
+            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Remove from cabinet")
+        }
     }
 }
 
@@ -719,7 +966,7 @@ private fun AddMedicationDialog(
     var selectedBrandId by remember { mutableStateOf<String?>(null) }
 
     val parsedSalts = remember(salts) {
-        salts.split(",", "+").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+        normalizeSaltInput(salts).map { it.canonicalSalt }
     }
     val inlineAllergyAlerts = remember(parsedSalts, profileAllergies) {
         OfflineAllergyChecker.detectConflicts(parsedSalts, profileAllergies)
@@ -742,7 +989,9 @@ private fun AddMedicationDialog(
         title = { Text("Add to cabinet") },
         text = {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .imePadding()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OutlinedTextField(
@@ -776,12 +1025,26 @@ private fun AddMedicationDialog(
                         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                             suggestions.take(4).forEachIndexed { idx, candidate ->
                                 if (idx > 0) HorizontalDivider(color = PillScopeColors.SlateBorder)
+                                val displaySalts = formatSaltComponents(
+                                    candidate.genericSalts,
+                                    candidate.canonicalSaltKeys,
+                                )
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
                                             name = candidate.brandName
-                                            salts = candidate.canonicalSaltKeys.joinToString(", ")
+                                            salts = if (candidate.genericSalts.isNotEmpty()) {
+                                                candidate.genericSalts.joinToString(", ") { s ->
+                                                    val str = s.strengthText?.takeIf { it.isNotBlank() }
+                                                        ?: s.strengthMg?.let { mg ->
+                                                            if (mg % 1.0 == 0.0) "${mg.toInt()}mg" else "${mg}mg"
+                                                        }
+                                                    if (str != null) "${s.canonicalSalt} $str" else s.canonicalSalt
+                                                }
+                                            } else {
+                                                candidate.canonicalSaltKeys.joinToString(", ")
+                                            }
                                             selectedBrandId = candidate.brandMappingId
                                         }
                                         .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -792,7 +1055,7 @@ private fun AddMedicationDialog(
                                         color = PillScopeColors.InkPrimary,
                                     )
                                     Text(
-                                        text = candidate.canonicalSaltKeys.joinToString(" + "),
+                                        text = displaySalts,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = PillScopeColors.ClinicalTeal,
                                     )
@@ -804,16 +1067,21 @@ private fun AddMedicationDialog(
                 OutlinedTextField(
                     value = salts,
                     onValueChange = { salts = it },
-                    label = { Text("Generic salts (comma separated)") },
+                    label = { Text("Active ingredients (comma separated)") },
+                    supportingText = { Text("e.g. acetaminophen 650mg (strength parsed automatically)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = schedule,
                     onValueChange = { schedule = it },
-                    label = { Text("Dosage (e.g. 1 tab twice daily)") },
+                    label = { Text("Dosage schedule (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                )
+                DosagePresetChips(
+                    currentValue = schedule,
+                    onValueChange = { schedule = it },
                 )
                 if (hasInlineWarning) {
                     Surface(
@@ -841,7 +1109,7 @@ private fun AddMedicationDialog(
                             }
                             inlineDuplicateMatches.forEach { (salt, medName) ->
                                 Text(
-                                    text = "• Duplicate salt '$salt' already active in $medName",
+                                    text = "• Duplicate ingredient '$salt' already active in $medName",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = PillScopeColors.CriticalCrimsonDark,
                                 )
@@ -861,12 +1129,17 @@ private fun AddMedicationDialog(
                         selectedBrandId,
                     )
                 },
-                enabled = name.isNotBlank() && salts.isNotBlank(),
+                enabled = name.isNotBlank() && parsedSalts.isNotEmpty(),
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (hasInlineWarning) {
+                        PillScopeColors.CriticalCrimson
+                    } else {
+                        PillScopeColors.ClinicalTeal
+                    },
+                    disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
+                ),
             ) {
-                Text(
-                    text = if (hasInlineWarning) "Save anyway" else "Save",
-                    color = if (hasInlineWarning) PillScopeColors.CriticalCrimson else PillScopeColors.ClinicalTeal,
-                )
+                Text(if (hasInlineWarning) "Save anyway" else "Save")
             }
         },
         dismissButton = {

@@ -39,13 +39,28 @@ class DoseAdherenceStore @Inject constructor(
     @ApplicationContext context: Context,
 ) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val _takenKeys = MutableStateFlow(loadTodayKeys())
+    @Volatile
+    private var loadedDate: LocalDate = LocalDate.now()
+    private val _takenKeys = MutableStateFlow(loadTodayKeys(loadedDate))
     val takenKeys: StateFlow<Set<String>> = _takenKeys.asStateFlow()
 
-    fun doseKey(profileId: String, medicationId: String, slot: String, doseNumber: Int): String =
-        "${LocalDate.now()}:$profileId:$medicationId:$slot:$doseNumber"
+    fun refreshIfDayChanged() {
+        val today = LocalDate.now()
+        if (today != loadedDate) {
+            loadedDate = today
+            val fresh = loadTodayKeys(today)
+            prefs.edit().putStringSet(KEY_TAKEN_SET, fresh).apply()
+            _takenKeys.value = fresh
+        }
+    }
+
+    fun doseKey(profileId: String, medicationId: String, slot: String, doseNumber: Int): String {
+        refreshIfDayChanged()
+        return "${LocalDate.now()}:$profileId:$medicationId:$slot:$doseNumber"
+    }
 
     fun toggleDoseTaken(profileId: String, medicationId: String, slot: String, doseNumber: Int) {
+        refreshIfDayChanged()
         val key = doseKey(profileId, medicationId, slot, doseNumber)
         val todayPrefix = "${LocalDate.now()}:"
         val current = _takenKeys.value.filter { it.startsWith(todayPrefix) }.toMutableSet()
@@ -55,12 +70,13 @@ class DoseAdherenceStore @Inject constructor(
     }
 
     fun clearAll() {
+        loadedDate = LocalDate.now()
         prefs.edit().remove(KEY_TAKEN_SET).apply()
         _takenKeys.value = emptySet()
     }
 
-    private fun loadTodayKeys(): Set<String> {
-        val todayPrefix = "${LocalDate.now()}:"
+    private fun loadTodayKeys(today: LocalDate = LocalDate.now()): Set<String> {
+        val todayPrefix = "$today:"
         return prefs.getStringSet(KEY_TAKEN_SET, emptySet())
             .orEmpty()
             .filter { it.startsWith(todayPrefix) }

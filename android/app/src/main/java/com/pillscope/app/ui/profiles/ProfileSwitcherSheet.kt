@@ -9,13 +9,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -23,7 +31,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -43,10 +50,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,15 +62,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pillscope.app.BuildConfig
 import com.pillscope.app.data.repository.UserProfile
+import com.pillscope.app.ui.common.rememberSafeUriOpener
 import com.pillscope.app.ui.theme.PillScopeColors
 
 private val CommonAllergenPresets = listOf("Penicillin", "NSAIDs", "Sulfa", "Aspirin", "Cephalosporins")
 private val RelationshipOptions = listOf("self" to "Self", "parent" to "Parent", "spouse" to "Spouse", "child" to "Child", "other" to "Other")
+
+private fun parseAllergenInput(raw: String): List<String> = raw
+    .split(",", ";")
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+
+private fun formatProfileSubtitle(profile: UserProfile): String {
+    val relLabel = profile.relationship.replaceFirstChar { it.uppercase() }
+    val showRelationship = !relLabel.equals(profile.name.trim(), ignoreCase = true)
+    val allergySummary = if (profile.allergies.isNotEmpty()) {
+        "Allergies: ${profile.allergies.joinToString(", ")}"
+    } else {
+        null
+    }
+    return when {
+        showRelationship && allergySummary != null -> "$relLabel · $allergySummary"
+        showRelationship -> relLabel
+        allergySummary != null -> allergySummary
+        else -> "No drug allergies listed"
+    }
+}
 
 @Composable
 fun ActiveProfilePill(
@@ -72,20 +104,20 @@ fun ActiveProfilePill(
     darkSurface: Boolean = false,
 ) {
     val containerColor = if (darkSurface) {
-        Color.Black.copy(alpha = 0.62f)
+        Color.Black.copy(alpha = 0.68f)
     } else {
         PillScopeColors.CardSurface
     }
     val contentColor = if (darkSurface) Color.White else PillScopeColors.InkPrimary
     val borderColor = if (darkSurface) {
-        Color.White.copy(alpha = 0.24f)
+        Color.White.copy(alpha = 0.28f)
     } else {
         PillScopeColors.SlateBorder
     }
 
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 38.dp),
         shape = CircleShape,
         color = containerColor,
         border = BorderStroke(1.dp, borderColor),
@@ -115,15 +147,15 @@ fun ActiveProfilePill(
                     Text(
                         text = "$count ${if (count == 1) "allergy" else "allergies"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = PillScopeColors.CriticalCrimson,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = PillScopeColors.CriticalCrimsonDark,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                     )
                 }
             }
             Icon(
                 imageVector = Icons.Default.ExpandMore,
                 contentDescription = "Switch profile",
-                tint = contentColor.copy(alpha = 0.72f),
+                tint = contentColor.copy(alpha = 0.78f),
                 modifier = Modifier.size(16.dp),
             )
         }
@@ -141,6 +173,7 @@ fun ProfileSwitcherSheet(
     activeProfile: UserProfile,
     userEmail: String?,
     offlineSession: Boolean,
+    isOfflineGuest: Boolean = false,
     hasPendingOfflineChanges: Boolean = false,
     statusMessage: String?,
     errorMessage: String?,
@@ -151,12 +184,17 @@ fun ProfileSwitcherSheet(
     onEditProfile: (profileId: String, name: String, relationship: String, setAsDefault: Boolean?) -> Unit,
     onSaveAllergies: (profileId: String, allergies: List<String>) -> Unit,
     onDeleteProfile: (String) -> Unit,
+    onSignInFromOfflineGuest: () -> Unit = {},
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val uriHandler = LocalUriHandler.current
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
+    val openUri = rememberSafeUriOpener()
+
     var editableAllergies by remember(activeProfile.id, activeProfile.allergies) {
         mutableStateOf(activeProfile.allergies)
     }
@@ -172,12 +210,44 @@ fun ProfileSwitcherSheet(
     var editMakeDefault by remember { mutableStateOf(false) }
 
     var pendingDeleteProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var pendingUnsavedAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var showSignOutConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var deleteAccountConfirmText by remember { mutableStateOf("") }
 
+    val hasUnsavedAllergyChanges = remember(editableAllergies, customAllergen, activeProfile.allergies) {
+        val pendingEntries = parseAllergenInput(customAllergen)
+        val merged = (editableAllergies + pendingEntries).distinctBy { it.lowercase() }
+        merged.map { it.lowercase() } != activeProfile.allergies.map { it.lowercase() }
+    }
+
+    val commitAllergenInput = {
+        val additions = parseAllergenInput(customAllergen)
+        if (additions.isNotEmpty()) {
+            editableAllergies = (editableAllergies + additions).distinctBy { it.lowercase() }
+            customAllergen = ""
+        }
+    }
+
+    val commitSaveAllergies = {
+        val pendingEntries = parseAllergenInput(customAllergen)
+        val finalAllergies = (editableAllergies + pendingEntries)
+            .distinctBy { it.lowercase() }
+        editableAllergies = finalAllergies
+        customAllergen = ""
+        onSaveAllergies(activeProfile.id, finalAllergies)
+    }
+
+    val guardUnsavedAllergies: (() -> Unit) -> Unit = { action ->
+        if (hasUnsavedAllergyChanges) {
+            pendingUnsavedAction = action
+        } else {
+            action()
+        }
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { guardUnsavedAllergies(onDismiss) },
         sheetState = sheetState,
         containerColor = PillScopeColors.CardSurface,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
@@ -185,9 +255,11 @@ fun ProfileSwitcherSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column {
@@ -236,177 +308,197 @@ fun ProfileSwitcherSheet(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 profiles.forEach { profile ->
                     val selected = profile.id == activeProfile.id
-                    Surface(
-                        onClick = { onSelectProfile(profile.id) },
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (selected) {
-                            PillScopeColors.ClinicalTealContainer.copy(alpha = 0.55f)
-                        } else {
-                            PillScopeColors.SlateSurface
-                        },
-                        border = BorderStroke(
-                            width = if (selected) 1.5.dp else 1.dp,
-                            color = if (selected) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
+                    val isBeingEdited = editingProfile?.id == profile.id
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            onClick = {
+                                if (profile.id != activeProfile.id) {
+                                    guardUnsavedAllergies { onSelectProfile(profile.id) }
+                                } else {
+                                    guardUnsavedAllergies(onDismiss)
+                                }
+                            },
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (selected) {
+                                PillScopeColors.ClinicalTealContainer.copy(alpha = 0.55f)
+                            } else {
+                                PillScopeColors.SlateSurface
+                            },
+                            border = BorderStroke(
+                                width = if (selected) 1.5.dp else 1.dp,
+                                color = if (selected) PillScopeColors.ClinicalTeal else PillScopeColors.SlateBorder,
+                            ),
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Text(
-                                        text = profile.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = PillScopeColors.InkPrimary,
-                                    )
-                                    if (profile.isDefault) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = PillScopeColors.SurfaceTint,
-                                        ) {
-                                            Text(
-                                                text = "Default",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = PillScopeColors.InkSecondary,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            text = profile.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = PillScopeColors.InkPrimary,
+                                        )
+                                        if (profile.isDefault) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = PillScopeColors.SurfaceTint,
+                                            ) {
+                                                Text(
+                                                    text = "Default",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = PillScopeColors.InkSecondary,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                )
+                                            }
                                         }
                                     }
-                                }
-                                Text(
-                                    text = buildString {
-                                        append(profile.relationship.replaceFirstChar { it.uppercase() })
-                                        if (profile.allergies.isNotEmpty()) {
-                                            append(", ")
-                                            append(profile.allergies.joinToString(", "))
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = PillScopeColors.InkSecondary,
-                                )
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = {
-                                        editingProfile = profile
-                                        editName = profile.name
-                                        editRelationship = profile.relationship
-                                        editMakeDefault = profile.isDefault
-                                    },
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit ${profile.name}",
-                                        tint = PillScopeColors.InkSecondary,
-                                        modifier = Modifier.size(18.dp),
+                                    Text(
+                                        text = formatProfileSubtitle(profile),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = PillScopeColors.InkSecondary,
                                     )
                                 }
-                                if (!profile.isDefault) {
-                                    IconButton(onClick = { pendingDeleteProfile = profile }) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            if (isBeingEdited) {
+                                                editingProfile = null
+                                            } else {
+                                                editingProfile = profile
+                                                editName = profile.name
+                                                editRelationship = profile.relationship
+                                                editMakeDefault = profile.isDefault
+                                            }
+                                        },
+                                    ) {
                                         Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete ${profile.name}",
-                                            tint = PillScopeColors.CriticalCrimson,
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit ${profile.name}",
+                                            tint = if (isBeingEdited) PillScopeColors.ClinicalTeal else PillScopeColors.InkSecondary,
                                             modifier = Modifier.size(18.dp),
                                         )
                                     }
-                                }
-                                if (selected) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Active profile",
-                                        tint = PillScopeColors.ClinicalTeal,
-                                    )
+                                    if (!profile.isDefault) {
+                                        IconButton(onClick = { pendingDeleteProfile = profile }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete ${profile.name}",
+                                                tint = PillScopeColors.CriticalCrimson,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Active profile",
+                                            tint = PillScopeColors.ClinicalTeal,
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                }
-            }
 
-            editingProfile?.let { target ->
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = PillScopeColors.SlateSurface,
-                    border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.45f)),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = "Edit ${target.name}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = PillScopeColors.InkPrimary,
-                        )
-                        OutlinedTextField(
-                            value = editName,
-                            onValueChange = { editName = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = { Text("Profile name") },
-                            shape = RoundedCornerShape(14.dp),
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            RelationshipOptions.forEach { (key, label) ->
-                                FilterChip(
-                                    selected = editRelationship == key,
-                                    onClick = { editRelationship = key },
-                                    label = { Text(label) },
-                                )
-                            }
-                        }
-                        if (!target.isDefault) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = editMakeDefault,
-                                    onCheckedChange = { editMakeDefault = it },
-                                )
-                                Text(
-                                    text = "Set as default profile",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = PillScopeColors.InkPrimary,
-                                )
-                            }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            OutlinedButton(
-                                onClick = { editingProfile = null },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp),
+                        if (isBeingEdited) {
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = PillScopeColors.SlateSurface,
+                                border = BorderStroke(1.dp, PillScopeColors.ClinicalTeal.copy(alpha = 0.45f)),
                             ) {
-                                Text("Cancel")
-                            }
-                            Button(
-                                onClick = {
-                                    onEditProfile(
-                                        target.id,
-                                        editName.trim(),
-                                        editRelationship,
-                                        if (!target.isDefault && editMakeDefault) true else null,
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(
+                                        text = "Edit ${profile.name}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = PillScopeColors.InkPrimary,
                                     )
-                                    editingProfile = null
-                                },
-                                enabled = editName.isNotBlank(),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp),
-                            ) {
-                                Text("Save changes")
+                                    OutlinedTextField(
+                                        value = editName,
+                                        onValueChange = { editName = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text("Profile name") },
+                                        shape = RoundedCornerShape(14.dp),
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        RelationshipOptions.forEach { (key, label) ->
+                                            FilterChip(
+                                                selected = editRelationship == key,
+                                                onClick = { editRelationship = key },
+                                                label = { Text(label) },
+                                            )
+                                        }
+                                    }
+                                    if (!profile.isDefault) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 48.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .toggleable(
+                                                    value = editMakeDefault,
+                                                    role = Role.Checkbox,
+                                                    onValueChange = { editMakeDefault = it },
+                                                )
+                                                .padding(horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Checkbox(
+                                                checked = editMakeDefault,
+                                                onCheckedChange = null,
+                                            )
+                                            Text(
+                                                text = "Set as default profile",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = PillScopeColors.InkPrimary,
+                                                modifier = Modifier.padding(start = 8.dp),
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { editingProfile = null },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(14.dp),
+                                        ) {
+                                            Text("Cancel")
+                                        }
+                                        Button(
+                                            onClick = {
+                                                onEditProfile(
+                                                    profile.id,
+                                                    editName.trim(),
+                                                    editRelationship,
+                                                    if (!profile.isDefault && editMakeDefault) true else null,
+                                                )
+                                                editingProfile = null
+                                            },
+                                            enabled = editName.isNotBlank(),
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(14.dp),
+                                        ) {
+                                            Text("Save changes")
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -417,20 +509,40 @@ fun ProfileSwitcherSheet(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = PillScopeColors.CriticalCrimson,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "Drug allergies for ${activeProfile.name}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = PillScopeColors.InkPrimary,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = PillScopeColors.CriticalCrimson,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "Drug allergies for ${activeProfile.name}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = PillScopeColors.InkPrimary,
+                        )
+                    }
+                    if (hasUnsavedAllergyChanges) {
+                        Surface(
+                            shape = CircleShape,
+                            color = PillScopeColors.ModerateAmberSurface,
+                        ) {
+                            Text(
+                                text = "Unsaved",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PillScopeColors.ModerateAmberDark,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
                 }
 
                 if (editableAllergies.isEmpty()) {
@@ -459,7 +571,7 @@ fun ProfileSwitcherSheet(
                                 colors = InputChipDefaults.inputChipColors(
                                     selectedContainerColor = PillScopeColors.CriticalCrimsonSurface,
                                     selectedLabelColor = PillScopeColors.CriticalCrimsonDark,
-                                    selectedTrailingIconColor = PillScopeColors.CriticalCrimson,
+                                    selectedTrailingIconColor = PillScopeColors.CriticalCrimsonDark,
                                 ),
                             )
                         }
@@ -491,42 +603,34 @@ fun ProfileSwitcherSheet(
                         onValueChange = { customAllergen = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        label = { Text("Add allergen or drug class") },
+                        label = { Text("Add allergen (comma separated)") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { commitAllergenInput() }),
                         shape = RoundedCornerShape(14.dp),
                     )
                     IconButton(
-                        onClick = {
-                            val trimmed = customAllergen.trim()
-                            if (trimmed.isNotEmpty() && editableAllergies.none { it.equals(trimmed, ignoreCase = true) }) {
-                                editableAllergies = editableAllergies + trimmed
-                                customAllergen = ""
-                            }
-                        },
+                        onClick = commitAllergenInput,
+                        enabled = customAllergen.isNotBlank(),
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add allergen",
-                            tint = PillScopeColors.ClinicalTeal,
+                            tint = if (customAllergen.isNotBlank()) {
+                                PillScopeColors.ClinicalTeal
+                            } else {
+                                PillScopeColors.InkSecondary.copy(alpha = 0.38f)
+                            },
                         )
                     }
                 }
 
                 Button(
-                    onClick = {
-                        val pendingEntries = customAllergen
-                            .split(",")
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
-                        val finalAllergies = (editableAllergies + pendingEntries)
-                            .distinctBy { it.lowercase() }
-                        editableAllergies = finalAllergies
-                        customAllergen = ""
-                        onSaveAllergies(activeProfile.id, finalAllergies)
-                    },
+                    onClick = commitSaveAllergies,
+                    enabled = hasUnsavedAllergyChanges,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("Save allergies")
+                    Text(if (hasUnsavedAllergyChanges) "Save allergy changes" else "Allergies up to date")
                 }
             }
 
@@ -590,10 +694,7 @@ fun ProfileSwitcherSheet(
                         }
                         Button(
                             onClick = {
-                                val parsedAllergies = newAllergiesInput
-                                    .split(",")
-                                    .map { it.trim() }
-                                    .filter { it.isNotEmpty() }
+                                val parsedAllergies = parseAllergenInput(newAllergiesInput)
                                 onCreateProfile(newName.trim(), newRelationship, parsedAllergies)
                                 newName = ""
                                 newAllergiesInput = ""
@@ -617,62 +718,97 @@ fun ProfileSwitcherSheet(
                     style = MaterialTheme.typography.titleMedium,
                     color = PillScopeColors.InkPrimary,
                 )
-                userEmail?.takeIf { it.isNotBlank() }?.let { email ->
+                if (isOfflineGuest) {
                     Text(
-                        text = buildString {
-                            append("Signed in as $email")
-                            if (offlineSession) append(" (offline mode)")
-                        },
+                        text = "Using on-device offline mode. Sign in to back up family profiles and run full interaction checks.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = PillScopeColors.InkSecondary,
                     )
+                } else {
+                    userEmail?.takeIf { it.isNotBlank() }?.let { email ->
+                        Text(
+                            text = buildString {
+                                append("Signed in as $email")
+                                if (offlineSession) append(" (offline mode)")
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PillScopeColors.InkSecondary,
+                        )
+                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(
-                        onClick = { runCatching { uriHandler.openUri(BuildConfig.PRIVACY_POLICY_URL) } },
+                        onClick = { openUri(BuildConfig.PRIVACY_POLICY_URL) },
                     ) {
                         Text("Privacy Policy")
                     }
                     TextButton(
-                        onClick = { runCatching { uriHandler.openUri(BuildConfig.ACCOUNT_DELETION_URL) } },
+                        onClick = { openUri(BuildConfig.ACCOUNT_DELETION_URL) },
                     ) {
                         Text("Data Deletion Policy")
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = { showSignOutConfirmDialog = true },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
-                    ) {
-                        Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.size(6.dp))
-                        Text("Sign Out")
-                    }
+                if (isOfflineGuest) {
                     Button(
-                        onClick = {
-                            deleteAccountConfirmText = ""
-                            showDeleteAccountDialog = true
-                        },
-                        enabled = !isDeletingAccount,
-                        modifier = Modifier.weight(1f),
+                        onClick = onSignInFromOfflineGuest,
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = PillScopeColors.CriticalCrimson,
-                            contentColor = Color.White,
-                        ),
                     ) {
-                        if (isDeletingAccount) {
-                            LoadingIndicator(modifier = Modifier.size(18.dp), color = Color.White)
-                        } else {
-                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.size(4.dp))
-                            Text("Delete Account")
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Login,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text("Sign in or create account")
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = { showSignOutConfirmDialog = true },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text("Sign Out")
+                        }
+                        Button(
+                            onClick = {
+                                deleteAccountConfirmText = ""
+                                showDeleteAccountDialog = true
+                            },
+                            enabled = !isDeletingAccount,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PillScopeColors.CriticalBannerContainer,
+                                contentColor = PillScopeColors.OnCriticalBanner,
+                            ),
+                        ) {
+                            if (isDeletingAccount) {
+                                LoadingIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = PillScopeColors.OnCriticalBanner,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteForever,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.size(4.dp))
+                                Text("Delete Account")
+                            }
                         }
                     }
                 }
@@ -680,6 +816,39 @@ fun ProfileSwitcherSheet(
 
             Spacer(Modifier.height(4.dp))
         }
+    }
+
+    pendingUnsavedAction?.let { nextAction ->
+        AlertDialog(
+            onDismissRequest = { pendingUnsavedAction = null },
+            title = { Text("Save allergy changes?") },
+            text = {
+                Text("You have unsaved drug allergy edits for ${activeProfile.name}. Save them before continuing?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        commitSaveAllergies()
+                        pendingUnsavedAction = null
+                        nextAction()
+                    },
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        editableAllergies = activeProfile.allergies
+                        customAllergen = ""
+                        pendingUnsavedAction = null
+                        nextAction()
+                    },
+                ) {
+                    Text("Discard")
+                }
+            },
+        )
     }
 
     pendingDeleteProfile?.let { target ->
@@ -697,8 +866,12 @@ fun ProfileSwitcherSheet(
                         onDeleteProfile(target.id)
                         pendingDeleteProfile = null
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = PillScopeColors.CriticalCrimson,
+                        disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
+                    ),
                 ) {
-                    Text("Delete", color = PillScopeColors.CriticalCrimson)
+                    Text("Delete")
                 }
             },
             dismissButton = {
@@ -730,11 +903,16 @@ fun ProfileSwitcherSheet(
                         showSignOutConfirmDialog = false
                         onSignOut()
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (hasPendingOfflineChanges) {
+                            PillScopeColors.CriticalCrimson
+                        } else {
+                            PillScopeColors.ClinicalTeal
+                        },
+                        disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
+                    ),
                 ) {
-                    Text(
-                        text = if (hasPendingOfflineChanges) "Sign out & discard" else "Sign out",
-                        color = if (hasPendingOfflineChanges) PillScopeColors.CriticalCrimson else PillScopeColors.ClinicalTeal,
-                    )
+                    Text(if (hasPendingOfflineChanges) "Sign out & discard" else "Sign out")
                 }
             },
             dismissButton = {
@@ -770,8 +948,12 @@ fun ProfileSwitcherSheet(
                         onDeleteAccount()
                     },
                     enabled = deleteAccountConfirmText.trim().equals("DELETE", ignoreCase = true),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = PillScopeColors.CriticalCrimson,
+                        disabledContentColor = PillScopeColors.InkSecondary.copy(alpha = 0.38f),
+                    ),
                 ) {
-                    Text("Delete forever", color = PillScopeColors.CriticalCrimson)
+                    Text("Delete forever")
                 }
             },
             dismissButton = {

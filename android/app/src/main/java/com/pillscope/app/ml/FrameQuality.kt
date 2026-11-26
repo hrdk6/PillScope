@@ -60,4 +60,5 @@ data class CameraPipelineResult(
     val ocrTextBlocks: List<OcrTextBlockBox> = emptyList(),
     val frameWidth: Int = 0,
     val frameHeight: Int = 0,
+    val wasForced: Boolean = false,
 )

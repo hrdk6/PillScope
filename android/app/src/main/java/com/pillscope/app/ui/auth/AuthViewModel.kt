@@ -15,6 +15,8 @@ import javax.inject.Inject
 
 data class AuthUiState(
     val isSubmitting: Boolean = false,
+    val emailError: String? = null,
+    val passwordError: String? = null,
     val errorMessage: String? = null,
     val accountActionError: String? = null,
     val isDeletingAccount: Boolean = false,
@@ -30,15 +32,29 @@ class AuthViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
+    @Volatile
+    private var lastInitializedSessionUserId: String? = null
+
     init {
         viewModelScope.launch {
             authRepository.restoreSession()
         }
         viewModelScope.launch {
             authRepository.sessionExpiredEvents.collect { reason ->
+                lastInitializedSessionUserId = null
                 authRepository.handleSessionExpired(reason)
             }
         }
+    }
+
+    /**
+     * Returns true only when [userId] represents a newly entered account session rather than
+     * an Activity recreation (e.g., rotation or Dark Mode toggle) for the same signed-in user.
+     */
+    fun shouldInitializeSessionFor(userId: String): Boolean {
+        if (lastInitializedSessionUserId == userId) return false
+        lastInitializedSessionUserId = userId
+        return true
     }
 
     fun acceptOnboardingConsent() {
@@ -49,7 +65,22 @@ class AuthViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _uiState.update { it.copy(errorMessage = null, accountActionError = null) }
+        _uiState.update {
+            it.copy(
+                emailError = null,
+                passwordError = null,
+                errorMessage = null,
+                accountActionError = null,
+            )
+        }
+    }
+
+    fun clearEmailError() {
+        _uiState.update { it.copy(emailError = null, errorMessage = null) }
+    }
+
+    fun clearPasswordError() {
+        _uiState.update { it.copy(passwordError = null, errorMessage = null) }
     }
 
     fun refreshPendingOfflineStatus() {
@@ -60,18 +91,37 @@ class AuthViewModel @Inject constructor(
     }
 
     fun signIn(email: String, password: String) {
-        if (email.isBlank() || !email.contains("@")) {
-            _uiState.update { it.copy(errorMessage = "Enter a valid email address.") }
-            return
+        val trimmedEmail = email.trim()
+        val emailErr = if (trimmedEmail.isBlank() || !trimmedEmail.contains("@") || !trimmedEmail.substringAfter("@").contains(".")) {
+            "Enter a valid email address."
+        } else {
+            null
         }
-        if (password.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Enter your password.") }
+        val passwordErr = if (password.isBlank()) "Enter your password." else null
+        if (emailErr != null || passwordErr != null) {
+            _uiState.update {
+                it.copy(
+                    emailError = emailErr,
+                    passwordError = passwordErr,
+                    errorMessage = null,
+                )
+            }
             return
         }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            when (val res = authRepository.login(email, password)) {
-                is AuthActionResult.Success -> _uiState.update { it.copy(isSubmitting = false, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isSubmitting = true,
+                    emailError = null,
+                    passwordError = null,
+                    errorMessage = null,
+                )
+            }
+            when (val res = authRepository.login(trimmedEmail, password)) {
+                is AuthActionResult.Success -> {
+                    lastInitializedSessionUserId = null
+                    _uiState.update { it.copy(isSubmitting = false, errorMessage = null) }
+                }
                 is AuthActionResult.Failure -> _uiState.update {
                     it.copy(isSubmitting = false, errorMessage = res.error.userMessage)
                 }
@@ -80,18 +130,41 @@ class AuthViewModel @Inject constructor(
     }
 
     fun register(email: String, password: String, displayName: String?) {
-        if (email.isBlank() || !email.contains("@")) {
-            _uiState.update { it.copy(errorMessage = "Enter a valid email address.") }
-            return
+        val trimmedEmail = email.trim()
+        val emailErr = if (trimmedEmail.isBlank() || !trimmedEmail.contains("@") || !trimmedEmail.substringAfter("@").contains(".")) {
+            "Enter a valid email address."
+        } else {
+            null
         }
-        if (password.length < 8) {
-            _uiState.update { it.copy(errorMessage = "Password must be at least 8 characters.") }
+        val passwordErr = if (password.length < 8) {
+            "Password must be at least 8 characters."
+        } else {
+            null
+        }
+        if (emailErr != null || passwordErr != null) {
+            _uiState.update {
+                it.copy(
+                    emailError = emailErr,
+                    passwordError = passwordErr,
+                    errorMessage = null,
+                )
+            }
             return
         }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            when (val res = authRepository.register(email, password, displayName)) {
-                is AuthActionResult.Success -> _uiState.update { it.copy(isSubmitting = false, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isSubmitting = true,
+                    emailError = null,
+                    passwordError = null,
+                    errorMessage = null,
+                )
+            }
+            when (val res = authRepository.register(trimmedEmail, password, displayName)) {
+                is AuthActionResult.Success -> {
+                    lastInitializedSessionUserId = null
+                    _uiState.update { it.copy(isSubmitting = false, errorMessage = null) }
+                }
                 is AuthActionResult.Failure -> _uiState.update {
                     it.copy(isSubmitting = false, errorMessage = res.error.userMessage)
                 }
@@ -99,8 +172,21 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun continueOfflineGuest() {
+        viewModelScope.launch {
+            lastInitializedSessionUserId = null
+            authRepository.enterOfflineGuestMode()
+        }
+    }
+
+    fun exitOfflineGuestToSignIn() {
+        lastInitializedSessionUserId = null
+        authRepository.exitOfflineGuestModeToSignIn()
+    }
+
     fun signOut() {
         viewModelScope.launch {
+            lastInitializedSessionUserId = null
             authRepository.logout()
         }
     }
@@ -110,6 +196,7 @@ class AuthViewModel @Inject constructor(
             _uiState.update { it.copy(isDeletingAccount = true, accountActionError = null) }
             val error = authRepository.deleteAccount()
             if (error == null) {
+                lastInitializedSessionUserId = null
                 _uiState.update { it.copy(isDeletingAccount = false, accountActionError = null) }
                 onComplete()
             } else {

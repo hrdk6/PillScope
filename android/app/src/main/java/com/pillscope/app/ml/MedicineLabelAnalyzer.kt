@@ -103,6 +103,7 @@ class MedicineLabelAnalyzer(
                         ocrTextBlocks = ocrResult.blocks,
                         frameWidth = uprightBitmap.width,
                         frameHeight = uprightBitmap.height,
+                        wasForced = forced,
                     ),
                 )
             } finally {
